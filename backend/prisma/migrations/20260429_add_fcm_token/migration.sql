@@ -1,0 +1,1 @@
+ALTER TABLE node_app."User" ADD COLUMN IF NOT EXISTS "fcmToken" TEXT;

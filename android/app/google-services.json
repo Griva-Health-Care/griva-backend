@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "687756687445",
+    "project_id": "griva-app-18f0f",
+    "storage_bucket": "griva-app-18f0f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:687756687445:android:da419f99848eb2473ebcdc",
+        "android_client_info": {
+          "package_name": "com.example.griva_pi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCmZyIcx-dMxJDLLHoazVqwaMmpPKGGhvI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

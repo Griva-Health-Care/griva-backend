@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(psql postgresql://griva:griva_dev_password@localhost:5432/griva -c \"DELETE FROM users WHERE email = 'probe_test_delete@test.com'\")",
+      "Bash(node --loader ts-node/esm src/server.ts)",
+      "Bash(curl -s http://localhost:5000/health)",
+      "Bash(curl -s -X POST http://localhost:5000/auth/login -H 'Content-Type: application/json' -d '{\"firebaseToken\":\"dev-token\",\"email\":\"devtest@griva.com\"}')",
+      "Bash(curl -s http://localhost:5000/users/me -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIxYjFlOTNiYS0xMWY1LTQ2YTQtODdhMC0wMTNmYWQ1ZWIyNWMiLCJyb2xlIjoiZG9jdG9yIiwiaWF0IjoxNzc2MTY0NjAwLCJleHAiOjE3NzYxNjU1MDB9.oWz3MSE5evtBh7noKtHtUsEuJyBjyoPygo_nD-Pxd8g')",
+      "Bash(curl -s http://localhost:5000/users/me)",
+      "Bash(python3 -c \"import sys,json; print\\('ok' if 'accessToken' in json.load\\(sys.stdin\\) else 'fail'\\)\")",
+      "Bash(awk '{print $2}')",
+      "Bash(xargs -I{} sh -c 'cat /proc/{}/fd/2 2>/dev/null | tail -5')",
+      "Bash(pkill -f \"src/server.ts\")",
+      "Bash(psql postgresql://griva:griva_dev_password@localhost:5432/griva -c \"SELECT id, email, role, is_active, created_at FROM users ORDER BY created_at;\")",
+      "Bash(psql postgresql://griva:griva_dev_password@localhost:5432/griva -c \"DELETE FROM users WHERE email IN \\('admin@griva.com','sandeep@gmail.com','sandeeparlee@gmail.com','devtest@griva.com','doctor@hospital.com'\\) RETURNING email;\")",
+      "Read(//home/alba/myprojects/griva-pi-main/backend/src/services/**)",
+      "Bash(wc -l /home/abel/myprojects/griva-pi-main/lib/**/*.dart)",
+      "Bash(grep -l \"TODO\\\\|FIXME\" /home/abel/myprojects/griva-pi-main/lib/**/*.dart)",
+      "Bash(find /home/abel/myprojects/griva-pi-main/lib -name \"*.dart\" -type f -exec grep -l \"^import\\\\|^export\" {} \\\\;)",
+      "Bash(flutter pub *)",
+      "Bash(flutter analyze *)",
+      "Bash(grep -v \"^$\")",
+      "Bash(dart run *)",
+      "Bash(grep -E \"\\\\.dart$\")",
+      "Bash(awk '{print $9, $5}')"
+    ]
+  }
+}
