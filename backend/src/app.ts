@@ -1,12 +1,12 @@
 import express from 'express';
 import cors from 'cors';
 
-import userRoutes from './routes/user.routes.js';
-import adminRoutes from './routes/admin.routes.js';
-import creditRoutes from './routes/credit.routes.js';
-import caseRoutes from './routes/case.routes.js';
-import abdmRoutes from './routes/abdm.routes.js';
-import { auditMiddleware } from './middleware/audit.middleware.js';
+import userRoutes from './routes/user.routes';
+import adminRoutes from './routes/admin.routes';
+import creditRoutes from './routes/credit.routes';
+import caseRoutes from './routes/case.routes';
+import abdmRoutes from './routes/abdm.routes';
+import { auditMiddleware } from './middleware/audit.middleware';
 
 const app = express();
 

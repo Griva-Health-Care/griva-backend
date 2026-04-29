@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyFirebaseToken } from '../utils/firebase.js';
-import { prisma } from '../utils/prisma.js';
+import { verifyFirebaseToken } from '../utils/firebase';
+import { prisma } from '../utils/prisma';
 
 export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   try {

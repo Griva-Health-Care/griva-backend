@@ -1,16 +1,11 @@
 import { Router } from 'express';
-import { createRequire } from 'module';
 import { getMessaging } from 'firebase-admin/messaging';
-import { prisma } from '../utils/prisma.js';
-import { authMiddleware } from '../middleware/auth.middleware.js';
-import { requireRole } from '../middleware/role.middleware.js';
+import { prisma } from '../utils/prisma';
+import { authMiddleware } from '../middleware/auth.middleware';
+import { requireRole } from '../middleware/role.middleware';
+import PDFDocument from 'pdfkit';
 
 const router = Router();
-
-// pdfkit ships as CommonJS; load via createRequire in an ESM project.
-const require = createRequire(import.meta.url);
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const PDFDocument = require('pdfkit') as typeof import('pdfkit');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

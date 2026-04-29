@@ -27,7 +27,7 @@
  * Reference: https://sandbox.abdm.gov.in/swagger/
  */
 
-import { prisma } from '../utils/prisma.js';
+import { prisma } from '../utils/prisma';
 
 const BASE  = process.env.ABDM_BASE_URL    ?? 'https://dev.abdm.gov.in/gateway';
 const CLIENT_ID     = process.env.ABDM_CLIENT_ID     ?? '';

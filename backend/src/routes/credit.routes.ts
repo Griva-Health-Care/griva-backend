@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import admin from 'firebase-admin';
-import { prisma } from '../utils/prisma.js';
-import { authMiddleware } from '../middleware/auth.middleware.js';
-import { requireRole } from '../middleware/role.middleware.js';
+import { prisma } from '../utils/prisma';
+import { authMiddleware } from '../middleware/auth.middleware';
+import { requireRole } from '../middleware/role.middleware';
 
 const router = Router();
 

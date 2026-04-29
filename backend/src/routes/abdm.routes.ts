@@ -17,7 +17,7 @@
  */
 
 import { Router } from 'express';
-import { authMiddleware } from '../middleware/auth.middleware.js';
+import { authMiddleware } from '../middleware/auth.middleware';
 import {
   sendAadhaarOtp,
   verifyAadhaarOtp,
@@ -27,8 +27,8 @@ import {
   saveAbdmSession,
   getAbdmSession,
   AbdmNotImplementedError,
-} from '../services/abdm.service.js';
-import { prisma } from '../utils/prisma.js';
+} from '../services/abdm.service';
+import { prisma } from '../utils/prisma';
 
 const router = Router();
 

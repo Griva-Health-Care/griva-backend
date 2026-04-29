@@ -1,21 +1,17 @@
 {
   "compilerOptions": {
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
-    "target": "esnext",
-    "lib": ["esnext"],
-    "resolveJsonModule": true,
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "node10",
+    "ignoreDeprecations": "6.0",
+    "outDir": "dist",
+    "rootDir": "src",
     "esModuleInterop": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
     "sourceMap": true,
-    "declaration": true,
-    "declarationMap": true,
-    "rootDir": "./",
-    "outDir": "./dist",
-    "types": ["node"]
+    "declaration": true
   },
-  "include": ["src", "prisma.config.ts"]
+  "include": ["src"]
 }

@@ -1,11 +1,10 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "type": "module",
   "description": "",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "node --env-file=.env --loader ts-node/esm src/server.ts",
+    "dev": "ts-node-dev --respawn src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js"
   },
