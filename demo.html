@@ -1,0 +1,1396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Griva Backend Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header .logo {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 14px; color: white;
+    }
+    header h1 { font-size: 18px; font-weight: 600; color: #f1f5f9; }
+    header span { font-size: 13px; color: #64748b; margin-left: 4px; }
+
+    #auth-banner {
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 13px;
+    }
+    #auth-banner .pill {
+      padding: 3px 10px;
+      border-radius: 99px;
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .pill-connected { background: #14532d; color: #4ade80; }
+    .pill-disconnected { background: #450a0a; color: #f87171; }
+    #auth-banner .user-email { color: #94a3b8; }
+    #auth-banner button {
+      margin-left: auto;
+      padding: 6px 14px;
+      background: #334155;
+      border: none; border-radius: 6px;
+      color: #e2e8f0; cursor: pointer; font-size: 12px;
+    }
+    #auth-banner button:hover { background: #475569; }
+
+    .container { display: flex; min-height: calc(100vh - 113px); }
+
+    nav {
+      width: 220px;
+      background: #1e293b;
+      border-right: 1px solid #334155;
+      padding: 16px 0;
+      flex-shrink: 0;
+    }
+    nav .section-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 8px 20px 4px;
+    }
+    nav a {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 20px;
+      color: #94a3b8;
+      text-decoration: none;
+      font-size: 13px;
+      cursor: pointer;
+      border-left: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    nav a:hover { color: #e2e8f0; background: #0f172a; }
+    nav a.active { color: #818cf8; border-left-color: #818cf8; background: #0f172a; }
+    nav a .badge {
+      margin-left: auto;
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 99px;
+      background: #334155;
+      color: #64748b;
+    }
+    nav a.active .badge { background: #312e81; color: #a5b4fc; }
+
+    main {
+      flex: 1;
+      padding: 24px;
+      overflow-y: auto;
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin-bottom: 4px; }
+    .subtitle { font-size: 13px; color: #64748b; margin-bottom: 20px; }
+
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .method-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+    .get  { background: #052e16; color: #4ade80; }
+    .post { background: #1c1917; color: #fb923c; }
+    .put  { background: #1e1b4b; color: #818cf8; }
+
+    .form-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .form-col { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 140px; }
+    label { font-size: 12px; color: #64748b; }
+    input, select {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: #e2e8f0;
+      font-size: 13px;
+      width: 100%;
+    }
+    input:focus, select:focus { outline: none; border-color: #6366f1; }
+    input::placeholder { color: #475569; }
+
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: #6366f1; color: white; }
+    .btn-secondary { background: #334155; color: #e2e8f0; }
+    .btn-success { background: #16a34a; color: white; }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .response-box {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      padding: 12px;
+      margin-top: 12px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      max-height: 320px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .response-box.success { border-color: #14532d; color: #86efac; }
+    .response-box.error   { border-color: #7f1d1d; color: #fca5a5; }
+    .response-box.info    { border-color: #1e3a5f; color: #93c5fd; }
+
+    /* Login overlay */
+    #login-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    .login-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 32px;
+      width: 360px;
+    }
+    .login-card h3 { font-size: 18px; margin-bottom: 4px; }
+    .login-card p { font-size: 13px; color: #64748b; margin-bottom: 24px; }
+    .login-card .form-col { margin-bottom: 14px; }
+    .login-card .form-col:last-of-type { margin-bottom: 20px; }
+    #login-error { font-size: 12px; color: #f87171; margin-top: 8px; min-height: 18px; }
+
+    /* Status dot */
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot-green { background: #4ade80; }
+    .dot-red   { background: #f87171; }
+    .dot-yellow{ background: #fbbf24; }
+
+    /* Users table */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 8px 12px; color: #64748b; font-weight: 500; border-bottom: 1px solid #334155; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    td { padding: 10px 12px; border-bottom: 1px solid #1e293b; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #0f172a33; }
+
+    .role-chip {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .role-doctor      { background: #164e63; color: #67e8f9; }
+    .role-diagnostic  { background: #312e81; color: #a5b4fc; }
+    .role-tele_reporter { background: #1c1917; color: #fdba74; }
+    .role-admin       { background: #3b0764; color: #d8b4fe; }
+    .role-superadmin  { background: #450a0a; color: #fca5a5; }
+
+    .status-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600;
+    }
+    .status-active   { background: #14532d; color: #4ade80; }
+    .status-inactive { background: #450a0a; color: #f87171; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 700px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    /* Tele Report */
+    .drop-zone {
+      border: 2px dashed #334155;
+      border-radius: 10px;
+      padding: 32px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      margin-bottom: 16px;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: #6366f1;
+      background: #1e293b88;
+    }
+    .drop-zone .drop-icon { font-size: 32px; margin-bottom: 8px; }
+    .drop-zone p { font-size: 13px; color: #64748b; }
+    .drop-zone span { color: #818cf8; text-decoration: underline; cursor: pointer; }
+
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .preview-item {
+      position: relative;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0f172a;
+      border: 1px solid #334155;
+      aspect-ratio: 1;
+    }
+    .preview-item img, .preview-item video {
+      width: 100%; height: 100%; object-fit: cover;
+    }
+    .preview-item .remove-btn {
+      position: absolute; top: 4px; right: 4px;
+      background: #0f172acc; border: none; border-radius: 50%;
+      width: 22px; height: 22px;
+      color: #f87171; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; line-height: 1;
+    }
+    .preview-item .file-label {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: #0f172acc;
+      font-size: 10px; color: #94a3b8;
+      padding: 3px 5px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .preview-item .video-icon {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 28px; pointer-events: none;
+    }
+
+    .upload-progress {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 10px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .progress-bar-track {
+      background: #1e293b;
+      border-radius: 99px;
+      height: 4px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      background: #6366f1;
+      height: 100%;
+      border-radius: 99px;
+      transition: width 0.2s;
+    }
+
+    .case-card {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+    }
+    .case-card-header {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+    }
+    .case-status {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .case-status-pending    { background: #422006; color: #fbbf24; }
+    .case-status-in_review  { background: #1e1b4b; color: #818cf8; }
+    .case-status-completed  { background: #14532d; color: #4ade80; }
+
+    .case-files { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .case-file-thumb {
+      width: 56px; height: 56px;
+      border-radius: 6px;
+      object-fit: cover;
+      border: 1px solid #334155;
+      background: #1e293b;
+    }
+    .case-file-video {
+      width: 56px; height: 56px;
+      border-radius: 6px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+    }
+
+    textarea {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: #e2e8f0;
+      font-size: 13px;
+      width: 100%;
+      resize: vertical;
+      min-height: 80px;
+      font-family: inherit;
+    }
+    textarea:focus { outline: none; border-color: #6366f1; }
+  </style>
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="login-overlay">
+  <div class="login-card">
+    <h3>Griva Backend Demo</h3>
+    <p>Sign in with your Griva Firebase account to explore the API.</p>
+    <div class="form-col">
+      <label>Email</label>
+      <input id="login-email" type="email" placeholder="you@example.com" />
+    </div>
+    <div class="form-col">
+      <label>Password</label>
+      <input id="login-password" type="password" placeholder="••••••••" />
+    </div>
+    <button class="btn btn-primary" style="width:100%" id="login-btn" onclick="doLogin()">Sign In</button>
+    <div id="login-error"></div>
+  </div>
+</div>
+
+<!-- Header -->
+<header>
+  <div class="logo">G</div>
+  <h1>Griva Backend <span>— API Demo</span></h1>
+</header>
+
+<!-- Auth banner -->
+<div id="auth-banner">
+  <span class="dot dot-red" id="status-dot"></span>
+  <span class="pill pill-disconnected" id="auth-pill">Not signed in</span>
+  <span class="user-email" id="auth-user"></span>
+  <span id="auth-role" style="font-size:12px;color:#64748b;"></span>
+  <button onclick="doLogout()">Sign Out</button>
+</div>
+
+<!-- Layout -->
+<div class="container">
+  <nav>
+    <div class="section-label">System</div>
+    <a onclick="showPanel('health')" id="nav-health" class="active">
+      ⚡ Health Check <span class="badge">GET</span>
+    </a>
+
+    <div class="section-label">User</div>
+    <a onclick="showPanel('profile')" id="nav-profile">
+      👤 My Profile <span class="badge">GET · PUT</span>
+    </a>
+    <a onclick="showPanel('register')" id="nav-register">
+      📝 Register <span class="badge">POST</span>
+    </a>
+
+    <div class="section-label">Admin</div>
+    <a onclick="showPanel('users')" id="nav-users">
+      👥 List Users <span class="badge">GET</span>
+    </a>
+    <a onclick="showPanel('role')" id="nav-role">
+      🎭 Change Role <span class="badge">PUT</span>
+    </a>
+    <a onclick="showPanel('status')" id="nav-status">
+      🔒 Toggle Status <span class="badge">PUT</span>
+    </a>
+
+    <div class="section-label">Tele Report</div>
+    <a onclick="showPanel('telereport')" id="nav-telereport">
+      🩻 Submit Case <span class="badge">POST</span>
+    </a>
+    <a onclick="showPanel('mycases')" id="nav-mycases">
+      📂 My Cases <span class="badge">GET</span>
+    </a>
+
+    <div class="section-label">Credits</div>
+    <a onclick="showPanel('balance')" id="nav-balance">
+      💰 Balance <span class="badge">GET</span>
+    </a>
+    <a onclick="showPanel('topup')" id="nav-topup">
+      ➕ Top-up <span class="badge">POST</span>
+    </a>
+    <a onclick="showPanel('txns')" id="nav-txns">
+      📋 Transactions <span class="badge">GET</span>
+    </a>
+  </nav>
+
+  <main>
+
+    <!-- HEALTH -->
+    <div id="panel-health" class="panel active">
+      <h2>Health Check</h2>
+      <p class="subtitle">Verifies the backend server is up and responding.</p>
+      <div class="card">
+        <div class="card-title"><span class="method-badge get">GET</span> /health</div>
+        <p style="font-size:13px;color:#94a3b8;margin-bottom:14px;">No authentication required. Returns server status and timestamp.</p>
+        <button class="btn btn-primary" onclick="apiCall('GET','/health',null,'health-res')">Send Request</button>
+        <div id="health-res" class="response-box info">— response will appear here —</div>
+      </div>
+    </div>
+
+    <!-- PROFILE -->
+    <div id="panel-profile" class="panel">
+      <h2>My Profile</h2>
+      <p class="subtitle">Read or update the signed-in user's profile.</p>
+
+      <div class="card">
+        <div class="card-title"><span class="method-badge get">GET</span> /users/me</div>
+        <button class="btn btn-primary" onclick="apiCall('GET','/users/me',null,'profile-get-res')">Fetch My Profile</button>
+        <div id="profile-get-res" class="response-box info">— response will appear here —</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="method-badge put">PUT</span> /users/me — update profile</div>
+        <div class="form-row">
+          <div class="form-col">
+            <label>Full Name</label>
+            <input id="put-name" placeholder="Dr. Jane Doe" />
+          </div>
+          <div class="form-col">
+            <label>Hospital</label>
+            <input id="put-hospital" placeholder="Apollo Hospitals" />
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="updateProfile()">Update Profile</button>
+        <div id="profile-put-res" class="response-box info">— response will appear here —</div>
+      </div>
+    </div>
+
+    <!-- REGISTER -->
+    <div id="panel-register" class="panel">
+      <h2>Register / Sync User</h2>
+      <p class="subtitle">Idempotent upsert called after Firebase sign-up to write the user's profile into PostgreSQL.</p>
+      <div class="card">
+        <div class="card-title"><span class="method-badge post">POST</span> /users/register</div>
+        <div class="form-row">
+          <div class="form-col">
+            <label>Full Name</label>
+            <input id="reg-name" placeholder="Dr. Jane Doe" />
+          </div>
+          <div class="form-col">
+            <label>Hospital</label>
+            <input id="reg-hospital" placeholder="Apollo Hospitals" />
+          </div>
+          <div class="form-col">
+            <label>Role</label>
+            <select id="reg-role">
+              <option>doctor</option>
+              <option>diagnostic</option>
+              <option>tele_reporter</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="registerUser()">Register</button>
+        <div id="register-res" class="response-box info">— response will appear here —</div>
+      </div>
+    </div>
+
+    <!-- USERS -->
+    <div id="panel-users" class="panel">
+      <h2>List Users</h2>
+      <p class="subtitle">Admin-only. Returns all users with optional filters.</p>
+      <div class="card">
+        <div class="card-title"><span class="method-badge get">GET</span> /admin/users</div>
+        <div class="form-row" style="align-items:flex-end">
+          <div class="form-col">
+            <label>Filter by Role (optional)</label>
+            <select id="filter-role">
+              <option value="">— all roles —</option>
+              <option>doctor</option>
+              <option>diagnostic</option>
+              <option>tele_reporter</option>
+              <option>admin</option>
+              <option>superadmin</option>
+            </select>
+          </div>
+          <div class="form-col">
+            <label>Filter by Status (optional)</label>
+            <select id="filter-active">
+              <option value="">— all —</option>
+              <option value="true">Active</option>
+              <option value="false">Inactive</option>
+            </select>
+          </div>
+          <div>
+            <button class="btn btn-primary" onclick="listUsers()">Fetch Users</button>
+          </div>
+        </div>
+        <div id="users-table" style="margin-top:14px;overflow-x:auto;"></div>
+        <div id="users-res" class="response-box info" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- ROLE -->
+    <div id="panel-role" class="panel">
+      <h2>Change User Role</h2>
+      <p class="subtitle">Admin-only. Assigns a new role to any user.</p>
+      <div class="card">
+        <div class="card-title"><span class="method-badge put">PUT</span> /admin/users/:id/role</div>
+        <div class="form-row">
+          <div class="form-col">
+            <label>User ID (UUID)</label>
+            <input id="role-uid" placeholder="paste user id…" />
+          </div>
+          <div class="form-col">
+            <label>New Role</label>
+            <select id="role-new">
+              <option>doctor</option>
+              <option>diagnostic</option>
+              <option>tele_reporter</option>
+              <option>admin</option>
+              <option>superadmin</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="changeRole()">Change Role</button>
+        <div id="role-res" class="response-box info">— response will appear here —</div>
+      </div>
+    </div>
+
+    <!-- STATUS -->
+    <div id="panel-status" class="panel">
+      <h2>Toggle User Status</h2>
+      <p class="subtitle">Admin-only. Enable or disable a user account.</p>
+      <div class="card">
+        <div class="card-title"><span class="method-badge put">PUT</span> /admin/users/:id/status</div>
+        <div class="form-row">
+          <div class="form-col">
+            <label>User ID (UUID)</label>
+            <input id="status-uid" placeholder="paste user id…" />
+          </div>
+          <div class="form-col">
+            <label>New Status</label>
+            <select id="status-active">
+              <option value="true">Active</option>
+              <option value="false">Inactive (disabled)</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="changeStatus()">Update Status</button>
+        <div id="status-res" class="response-box info">— response will appear here —</div>
+      </div>
+    </div>
+
+    <!-- BALANCE -->
+    <div id="panel-balance" class="panel">
+      <h2>Credit Balance</h2>
+      <p class="subtitle">Reads a doctor's credit balance from Firestore. Doctors can only read their own; admins can read any.</p>
+      <div class="card">
+        <div class="card-title"><span class="method-badge get">GET</span> /credits/balance/:doctorUid</div>
+        <div class="form-row" style="align-items:flex-end">
+          <div class="form-col">
+            <label>Doctor Firebase UID</label>
+            <input id="bal-uid" placeholder="Firebase UID…" />
+          </div>
+          <div>
+            <button class="btn btn-primary" onclick="checkBalance()">Check Balance</button>
+          </div>
+        </div>
+        <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="prefillMyUid()">Use my UID</button>
+        <div id="balance-res" class="response-box info">— response will appear here —</div>
+      </div>
+    </div>
+
+    <!-- TOPUP -->
+    <div id="panel-topup" class="panel">
+      <h2>Credit Top-up</h2>
+      <p class="subtitle">Admin-only. Adds credits to a doctor's Firestore balance and writes an immutable ledger entry to PostgreSQL.</p>
+      <div class="card">
+        <div class="card-title"><span class="method-badge post">POST</span> /credits/topup</div>
+        <div class="form-row">
+          <div class="form-col">
+            <label>Doctor Firebase UID</label>
+            <input id="topup-uid" placeholder="Firebase UID…" />
+          </div>
+          <div class="form-col" style="max-width:120px">
+            <label>Amount (integer)</label>
+            <input id="topup-amount" type="number" min="1" step="1" value="10" />
+          </div>
+          <div class="form-col">
+            <label>Reason (optional)</label>
+            <input id="topup-reason" placeholder="admin_topup" />
+          </div>
+        </div>
+        <button class="btn btn-success" onclick="topUp()">Add Credits</button>
+        <div id="topup-res" class="response-box info">— response will appear here —</div>
+      </div>
+    </div>
+
+    <!-- TRANSACTIONS -->
+    <div id="panel-txns" class="panel">
+      <h2>Transaction History</h2>
+      <p class="subtitle">Admin-only. Returns the last 100 credit ledger entries for a doctor.</p>
+      <div class="card">
+        <div class="card-title"><span class="method-badge get">GET</span> /credits/transactions/:doctorUid</div>
+        <div class="form-row" style="align-items:flex-end">
+          <div class="form-col">
+            <label>Doctor Firebase UID</label>
+            <input id="txn-uid" placeholder="Firebase UID…" />
+          </div>
+          <div>
+            <button class="btn btn-primary" onclick="fetchTransactions()">Fetch Transactions</button>
+          </div>
+        </div>
+        <div id="txns-table" style="margin-top:14px;overflow-x:auto;"></div>
+        <div id="txns-res" class="response-box info" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- TELE REPORT — DEMO (no backend) -->
+    <div id="panel-telereport" class="panel">
+      <h2>Tele Report — Live Demo</h2>
+      <p class="subtitle">Select images, pick a reporter, and submit. Everything runs in-browser — no backend required.</p>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+        <!-- LEFT: Submit form -->
+        <div>
+          <!-- Reporter list -->
+          <div class="card" style="margin-bottom:0">
+            <div class="card-title" style="margin-bottom:12px">👨‍⚕️ Available Tele-Reporters</div>
+            <div id="demo-reporters-list"></div>
+          </div>
+
+          <div style="height:14px"></div>
+
+          <!-- Drop zone -->
+          <div class="card" style="margin-bottom:0">
+            <div class="card-title" style="margin-bottom:12px">🖼️ Attach Images / Videos</div>
+            <div class="drop-zone" id="demo-drop-zone"
+              onclick="document.getElementById('demo-file-input').click()"
+              ondragover="event.preventDefault();this.classList.add('drag-over')"
+              ondragleave="this.classList.remove('drag-over')"
+              ondrop="demoHandleDrop(event)">
+              <div class="drop-icon">📂</div>
+              <p>Drag &amp; drop or <span>browse files</span></p>
+              <p style="margin-top:4px;font-size:11px">JPEG, PNG, MP4 — up to 50 MB each</p>
+            </div>
+            <input type="file" id="demo-file-input" accept="image/*,video/*" multiple style="display:none"
+              onchange="demoAddFiles(this.files)" />
+            <div class="preview-grid" id="demo-preview-grid" style="margin-top:10px"></div>
+          </div>
+
+          <div style="height:14px"></div>
+
+          <!-- Notes + submit -->
+          <div class="card" style="margin-bottom:0">
+            <div class="card-title" style="margin-bottom:10px">📝 Clinical Notes</div>
+            <textarea id="demo-notes" placeholder="Patient history, area of concern, imaging context…"
+              style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:6px;
+                     padding:10px;color:#e2e8f0;font-size:13px;resize:vertical;min-height:80px"></textarea>
+            <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+              <button class="btn btn-success" id="demo-submit-btn" onclick="demoSubmitCase()">
+                ✅ Submit Case
+              </button>
+              <span id="demo-file-count" style="font-size:12px;color:#64748b"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: Reporter dashboard -->
+        <div>
+          <div class="card" style="margin-bottom:0;height:100%">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div class="card-title" style="margin-bottom:0">📋 Reporter Dashboard</div>
+              <button class="btn btn-secondary btn-sm" onclick="demoClearDashboard()">Clear</button>
+            </div>
+            <div id="demo-dashboard">
+              <p style="font-size:13px;color:#475569;text-align:center;padding:32px 0">
+                Submit a case on the left — it will appear here.
+              </p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- TELE REPORT — MY CASES (backend) -->
+    <div id="panel-mycases" class="panel">
+      <h2>My Cases</h2>
+      <p class="subtitle">
+        Doctors see their own submissions · Tele-reporters see cases assigned to them · Admins see all.
+      </p>
+      <div class="card">
+        <div class="card-title"><span class="method-badge get">GET</span> /cases</div>
+        <div style="display:flex;gap:10px;margin-bottom:14px">
+          <button class="btn btn-primary" onclick="loadMyCases()">Fetch Cases</button>
+        </div>
+        <div id="cases-list"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+    from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+  import { getStorage, ref, uploadBytesResumable, getDownloadURL }
+    from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js';
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDzzqjNQNL4-Jgjq7D98Ns6sPkcZ0LkdSQ",
+    authDomain: "griva-app-18f0f.firebaseapp.com",
+    projectId: "griva-app-18f0f",
+    storageBucket: "griva-app-18f0f.firebasestorage.app",
+    messagingSenderId: "687756687445",
+    appId: "1:687756687445:web:88b8e8bdae8f9c523ebcdc",
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const storage = getStorage(app);
+  window._auth = auth;
+  window._storage = storage;
+
+  // Upload a single File to Firebase Storage, returning its download URL
+  window.uploadFile = (file, path, onProgress) => new Promise((resolve, reject) => {
+    const storageRef = ref(storage, path);
+    const task = uploadBytesResumable(storageRef, file);
+    task.on('state_changed',
+      snap => onProgress && onProgress(snap.bytesTransferred / snap.totalBytes),
+      reject,
+      async () => resolve(await getDownloadURL(task.snapshot.ref))
+    );
+  });
+
+  window.doLogin = async function() {
+    const email = document.getElementById('login-email').value.trim();
+    const pass  = document.getElementById('login-password').value;
+    const errEl = document.getElementById('login-error');
+    const btn   = document.getElementById('login-btn');
+    errEl.textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'Signing in…';
+    try {
+      await signInWithEmailAndPassword(auth, email, pass);
+    } catch(e) {
+      errEl.textContent = e.message;
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
+    }
+  };
+
+  window.doLogout = async function() {
+    await signOut(auth);
+  };
+
+  window.getToken = async function() {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Not signed in');
+    return user.getIdToken();
+  };
+
+  onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      document.getElementById('login-overlay').style.display = 'none';
+      document.getElementById('auth-pill').textContent = 'Connected';
+      document.getElementById('auth-pill').className = 'pill pill-connected';
+      document.getElementById('status-dot').className = 'dot dot-green';
+      document.getElementById('auth-user').textContent = user.email;
+      // Fetch role from backend
+      try {
+        const token = await user.getIdToken();
+        const r = await fetch('http://localhost:5000/users/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (r.ok) {
+          const data = await r.json();
+          document.getElementById('auth-role').textContent = `· ${data.user?.role ?? ''}`;
+          window._myFirebaseUid = user.uid;
+        }
+      } catch(_) {}
+    } else {
+      document.getElementById('login-overlay').style.display = 'flex';
+      document.getElementById('auth-pill').textContent = 'Not signed in';
+      document.getElementById('auth-pill').className = 'pill pill-disconnected';
+      document.getElementById('status-dot').className = 'dot dot-red';
+      document.getElementById('auth-user').textContent = '';
+      document.getElementById('auth-role').textContent = '';
+      document.getElementById('login-btn').disabled = false;
+      document.getElementById('login-btn').textContent = 'Sign In';
+    }
+  });
+</script>
+
+<script>
+  const API = 'http://localhost:5000';
+
+  function showPanel(name) {
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+    document.getElementById('panel-' + name).classList.add('active');
+    document.getElementById('nav-' + name).classList.add('active');
+  }
+
+  function setRes(id, data, isError) {
+    const el = document.getElementById(id);
+    el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    el.className = 'response-box ' + (isError ? 'error' : 'success');
+    el.style.display = '';
+  }
+
+  async function apiCall(method, path, body, resId) {
+    const el = document.getElementById(resId);
+    el.className = 'response-box info';
+    el.textContent = 'Loading…';
+    el.style.display = '';
+    try {
+      const token = await window.getToken();
+      const opts = {
+        method,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      };
+      if (body) opts.body = JSON.stringify(body);
+      const r = await fetch(API + path, opts);
+      const data = await r.json().catch(() => ({}));
+      setRes(resId, data, !r.ok);
+      return { ok: r.ok, data };
+    } catch(e) {
+      setRes(resId, { error: e.message }, true);
+      return { ok: false };
+    }
+  }
+
+  // Health — no auth
+  window.apiCall = async function(method, path, body, resId) {
+    if (path === '/health') {
+      const el = document.getElementById(resId);
+      el.className = 'response-box info'; el.textContent = 'Loading…';
+      try {
+        const r = await fetch(API + path);
+        const data = await r.json().catch(() => ({}));
+        setRes(resId, data, !r.ok);
+      } catch(e) {
+        setRes(resId, { error: e.message + ' — is the backend running on :5000?' }, true);
+      }
+      return;
+    }
+    // default
+    const el = document.getElementById(resId);
+    el.className = 'response-box info'; el.textContent = 'Loading…'; el.style.display = '';
+    try {
+      const token = await window.getToken();
+      const opts = { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } };
+      if (body) opts.body = JSON.stringify(body);
+      const r = await fetch(API + path, opts);
+      const data = await r.json().catch(() => ({}));
+      setRes(resId, data, !r.ok);
+    } catch(e) {
+      setRes(resId, { error: e.message }, true);
+    }
+  };
+
+  window.updateProfile = () => {
+    const fullName = document.getElementById('put-name').value.trim() || undefined;
+    const hospital = document.getElementById('put-hospital').value.trim() || undefined;
+    window.apiCall('PUT', '/users/me', { fullName, hospital }, 'profile-put-res');
+  };
+
+  window.registerUser = () => {
+    window.apiCall('POST', '/users/register', {
+      fullName: document.getElementById('reg-name').value.trim() || undefined,
+      hospital: document.getElementById('reg-hospital').value.trim() || undefined,
+      role: document.getElementById('reg-role').value,
+    }, 'register-res');
+  };
+
+  window.listUsers = async () => {
+    const role   = document.getElementById('filter-role').value;
+    const active = document.getElementById('filter-active').value;
+    let qs = new URLSearchParams();
+    if (role)   qs.set('role', role);
+    if (active) qs.set('isActive', active);
+    const path = '/admin/users' + (qs.toString() ? '?' + qs.toString() : '');
+
+    const tableEl = document.getElementById('users-table');
+    const resEl   = document.getElementById('users-res');
+    tableEl.innerHTML = '<p style="font-size:13px;color:#64748b">Loading…</p>';
+    resEl.style.display = 'none';
+
+    try {
+      const token = await window.getToken();
+      const r = await fetch(API + path, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        tableEl.innerHTML = '';
+        resEl.textContent = JSON.stringify(data, null, 2);
+        resEl.className = 'response-box error';
+        resEl.style.display = '';
+        return;
+      }
+      const users = data.users || [];
+      if (!users.length) {
+        tableEl.innerHTML = '<p style="font-size:13px;color:#64748b">No users found.</p>';
+        return;
+      }
+      tableEl.innerHTML = `<table>
+        <thead><tr>
+          <th>Name / Email</th><th>Role</th><th>Hospital</th><th>Status</th><th>Created</th><th>ID</th>
+        </tr></thead>
+        <tbody>${users.map(u => `<tr>
+          <td>
+            <div style="font-weight:500;color:#f1f5f9">${u.fullName || '—'}</div>
+            <div style="font-size:11px;color:#64748b">${u.email}</div>
+          </td>
+          <td><span class="role-chip role-${u.role}">${u.role}</span></td>
+          <td style="color:#94a3b8">${u.hospital || '—'}</td>
+          <td><span class="status-chip ${u.isActive ? 'status-active' : 'status-inactive'}">
+            <span class="dot ${u.isActive ? 'dot-green' : 'dot-red'}"></span>
+            ${u.isActive ? 'Active' : 'Inactive'}
+          </span></td>
+          <td style="color:#64748b;font-size:12px">${new Date(u.createdAt).toLocaleDateString()}</td>
+          <td style="font-size:11px;color:#475569;font-family:monospace">
+            <span title="${u.id}" style="cursor:pointer" onclick="copyToClipboard('${u.id}','${u.id.slice(0,8)}…')">${u.id.slice(0,8)}…</span>
+          </td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    } catch(e) {
+      tableEl.innerHTML = '';
+      resEl.textContent = JSON.stringify({ error: e.message }, null, 2);
+      resEl.className = 'response-box error'; resEl.style.display = '';
+    }
+  };
+
+  window.copyToClipboard = (text, label) => {
+    navigator.clipboard.writeText(text).then(() => alert('Copied: ' + text)).catch(() => {});
+  };
+
+  window.changeRole = () => {
+    const id = document.getElementById('role-uid').value.trim();
+    if (!id) { alert('Enter a user ID'); return; }
+    window.apiCall('PUT', `/admin/users/${id}/role`, { role: document.getElementById('role-new').value }, 'role-res');
+  };
+
+  window.changeStatus = () => {
+    const id = document.getElementById('status-uid').value.trim();
+    if (!id) { alert('Enter a user ID'); return; }
+    window.apiCall('PUT', `/admin/users/${id}/status`, { isActive: document.getElementById('status-active').value === 'true' }, 'status-res');
+  };
+
+  window.checkBalance = () => {
+    const uid = document.getElementById('bal-uid').value.trim();
+    if (!uid) { alert('Enter a Firebase UID'); return; }
+    window.apiCall('GET', `/credits/balance/${uid}`, null, 'balance-res');
+  };
+
+  window.prefillMyUid = () => {
+    if (window._myFirebaseUid) {
+      document.getElementById('bal-uid').value = window._myFirebaseUid;
+    } else {
+      alert('Sign in first');
+    }
+  };
+
+  window.topUp = () => {
+    const uid = document.getElementById('topup-uid').value.trim();
+    const amount = parseInt(document.getElementById('topup-amount').value, 10);
+    const reason = document.getElementById('topup-reason').value.trim() || undefined;
+    if (!uid) { alert('Enter a Firebase UID'); return; }
+    window.apiCall('POST', '/credits/topup', { doctorUid: uid, amount, reason }, 'topup-res');
+  };
+
+  // ── Tele Report Demo (no backend) ────────────────────────────────
+
+  const DEMO_REPORTERS = [
+    { id: 'rep-001', name: 'Dr. Priya Sharma',   hospital: 'Apollo Hospitals',    specialty: 'Radiology',    available: true  },
+    { id: 'rep-002', name: 'Dr. Arun Mehta',     hospital: 'Fortis Healthcare',   specialty: 'Pathology',    available: true  },
+    { id: 'rep-003', name: 'Dr. Sneha Iyer',     hospital: 'Manipal Hospital',    specialty: 'Oncology',     available: false },
+    { id: 'rep-004', name: 'Dr. Rahul Verma',    hospital: 'AIIMS Delhi',         specialty: 'Dermatology',  available: true  },
+  ];
+
+  let _demoSelectedReporter = null;
+  let _demoFiles = [];
+  let _demoCases = [];
+
+  function demoRenderReporters() {
+    const el = document.getElementById('demo-reporters-list');
+    el.innerHTML = DEMO_REPORTERS.map(r => {
+      const sel = _demoSelectedReporter === r.id;
+      return `<div onclick="demoSelectReporter('${r.id}')" style="
+          display:flex;align-items:center;gap:12px;
+          padding:10px 12px;border-radius:8px;cursor:pointer;margin-bottom:6px;
+          border:1.5px solid ${sel ? '#6366f1' : '#334155'};
+          background:${sel ? '#1e1b4b' : '#0f172a'};
+          transition:all 0.15s">
+        <div style="width:36px;height:36px;border-radius:50%;
+            background:linear-gradient(135deg,#6366f1,#8b5cf6);
+            display:flex;align-items:center;justify-content:center;
+            font-weight:700;color:white;font-size:14px;flex-shrink:0">
+          ${r.name.split(' ').slice(-1)[0][0]}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:#f1f5f9">${r.name}</div>
+          <div style="font-size:11px;color:#64748b">${r.specialty} · ${r.hospital}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;
+              background:${r.available ? '#14532d' : '#450a0a'};
+              color:${r.available ? '#4ade80' : '#f87171'}">
+            ${r.available ? '● Available' : '○ Offline'}
+          </span>
+          ${sel ? '<span style="font-size:10px;color:#818cf8;font-weight:600">SELECTED</span>' : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  window.demoSelectReporter = (id) => {
+    const rep = DEMO_REPORTERS.find(r => r.id === id);
+    if (!rep.available) {
+      alert(`${rep.name} is currently offline.`);
+      return;
+    }
+    _demoSelectedReporter = id;
+    demoRenderReporters();
+  };
+
+  function demoRenderPreviews() {
+    const grid = document.getElementById('demo-preview-grid');
+    const counter = document.getElementById('demo-file-count');
+    if (!_demoFiles.length) { grid.innerHTML = ''; counter.textContent = ''; return; }
+    counter.textContent = `${_demoFiles.length} file${_demoFiles.length !== 1 ? 's' : ''} selected`;
+    grid.innerHTML = _demoFiles.map((f, i) => {
+      const isVid = f.file.type.startsWith('video/');
+      const inner = isVid
+        ? `<div class="video-icon">▶</div><div class="file-label">${f.file.name}</div>`
+        : `<img src="${f.url}" alt="${f.file.name}" /><div class="file-label">${f.file.name}</div>`;
+      return `<div class="preview-item">${inner}
+        <button class="remove-btn" onclick="demoRemoveFile(${i})" title="Remove">✕</button>
+      </div>`;
+    }).join('');
+  }
+
+  window.demoRemoveFile = (i) => {
+    URL.revokeObjectURL(_demoFiles[i].url);
+    _demoFiles.splice(i, 1);
+    demoRenderPreviews();
+  };
+
+  window.demoAddFiles = (fileList) => {
+    Array.from(fileList).forEach(file => {
+      if (file.size > 50 * 1024 * 1024) { alert(`${file.name} exceeds 50 MB`); return; }
+      _demoFiles.push({ file, url: URL.createObjectURL(file) });
+    });
+    demoRenderPreviews();
+    document.getElementById('demo-drop-zone').classList.remove('drag-over');
+  };
+
+  window.demoHandleDrop = (e) => {
+    e.preventDefault();
+    window.demoAddFiles(e.dataTransfer.files);
+  };
+
+  window.demoSubmitCase = () => {
+    if (!_demoSelectedReporter) { alert('Please select a tele-reporter first.'); return; }
+    if (!_demoFiles.length)     { alert('Please attach at least one file.'); return; }
+
+    const reporter = DEMO_REPORTERS.find(r => r.id === _demoSelectedReporter);
+    const notes    = document.getElementById('demo-notes').value.trim();
+    const btn      = document.getElementById('demo-submit-btn');
+
+    btn.disabled = true;
+    btn.textContent = '⏳ Submitting…';
+
+    // Simulate a brief network delay
+    setTimeout(() => {
+      const caseObj = {
+        id:          crypto.randomUUID(),
+        reporter,
+        notes,
+        files:       _demoFiles.map(f => ({ name: f.file.name, type: f.file.type, url: f.url })),
+        status:      'assigned',
+        submittedAt: new Date(),
+      };
+      _demoCases.unshift(caseObj);
+      demoPushToDashboard(caseObj);
+
+      // Reset form
+      _demoFiles.forEach(f => URL.revokeObjectURL(f.url));
+      _demoFiles = [];
+      _demoSelectedReporter = null;
+      document.getElementById('demo-notes').value = '';
+      demoRenderPreviews();
+      demoRenderReporters();
+
+      btn.disabled = false;
+      btn.textContent = '✅ Submit Case';
+    }, 900);
+  };
+
+  function demoPushToDashboard(c) {
+    const dash = document.getElementById('demo-dashboard');
+    const statusColors = {
+      assigned:  { bg: '#1e3a5f', text: '#60a5fa', label: 'Assigned' },
+      in_review: { bg: '#2e1065', text: '#a78bfa', label: 'In Review' },
+      completed: { bg: '#052e16', text: '#4ade80', label: 'Completed' },
+    };
+
+    // Remove empty-state placeholder
+    const empty = dash.querySelector('p');
+    if (empty) empty.remove();
+
+    const card = document.createElement('div');
+    card.id = `demo-case-${c.id}`;
+    card.style.cssText = `background:#0f172a;border:1px solid #334155;border-radius:10px;
+      padding:14px;margin-bottom:12px`;
+    card.innerHTML = demoCaseCardHTML(c, statusColors);
+    dash.prepend(card);
+  }
+
+  function demoCaseCardHTML(c, statusColors) {
+    const sc = statusColors[c.status] || statusColors.assigned;
+    const thumbs = c.files.map(f =>
+      f.type.startsWith('video/')
+        ? `<div style="width:56px;height:56px;background:#1e293b;border-radius:6px;
+              display:flex;align-items:center;justify-content:center;font-size:20px">🎥</div>`
+        : `<img src="${f.url}" style="width:56px;height:56px;object-fit:cover;
+              border-radius:6px;border:1px solid #334155" />`
+    ).join('');
+
+    return `
+      <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px">
+        <div style="width:32px;height:32px;border-radius:50%;
+            background:linear-gradient(135deg,#6366f1,#8b5cf6);
+            display:flex;align-items:center;justify-content:center;
+            font-weight:700;color:white;font-size:12px;flex-shrink:0">
+          ${c.reporter.name.split(' ').slice(-1)[0][0]}
+        </div>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600;color:#f1f5f9">${c.reporter.name}</div>
+          <div style="font-size:11px;color:#64748b">${c.reporter.specialty} · ${c.reporter.hospital}</div>
+        </div>
+        <span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px;
+            background:${sc.bg};color:${sc.text}">${sc.label}</span>
+      </div>
+      ${c.notes ? `<p style="font-size:12px;color:#94a3b8;margin-bottom:8px;
+          background:#1e293b;padding:8px 10px;border-radius:6px">${c.notes}</p>` : ''}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${thumbs}</div>
+      <div style="font-size:11px;color:#475569;margin-bottom:10px">
+        ${c.files.length} file${c.files.length !== 1 ? 's' : ''} ·
+        ${c.submittedAt.toLocaleTimeString()}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+        ${['assigned','in_review','completed'].map(s => `
+          <button onclick="demoSetStatus('${c.id}','${s}')"
+            class="btn btn-sm ${s === c.status ? 'btn-primary' : 'btn-secondary'}">
+            ${s.replace('_',' ')}
+          </button>`).join('')}
+      </div>
+      <div id="demo-report-area-${c.id}">
+        ${c.status === 'completed' && c.reporterNote
+          ? `<div style="background:#052e16;border:1px solid #14532d;border-radius:6px;
+                padding:10px;font-size:12px;color:#4ade80">
+              <strong>Report:</strong> ${c.reporterNote}
+            </div>`
+          : `<textarea id="demo-note-${c.id}" placeholder="Reporter findings…"
+              style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:6px;
+                     padding:8px;color:#e2e8f0;font-size:12px;resize:vertical;min-height:60px"></textarea>
+             <button onclick="demoSubmitReport('${c.id}')" class="btn btn-success btn-sm"
+               style="margin-top:6px">Submit Report</button>`}
+      </div>`;
+  }
+
+  window.demoSetStatus = (caseId, newStatus) => {
+    const c = _demoCases.find(x => x.id === caseId);
+    if (!c) return;
+    c.status = newStatus;
+    const card = document.getElementById(`demo-case-${caseId}`);
+    if (card) {
+      const sc = {
+        assigned:  { bg: '#1e3a5f', text: '#60a5fa', label: 'Assigned' },
+        in_review: { bg: '#2e1065', text: '#a78bfa', label: 'In Review' },
+        completed: { bg: '#052e16', text: '#4ade80', label: 'Completed' },
+      };
+      card.innerHTML = demoCaseCardHTML(c, sc);
+    }
+  };
+
+  window.demoSubmitReport = (caseId) => {
+    const c = _demoCases.find(x => x.id === caseId);
+    if (!c) return;
+    const note = document.getElementById(`demo-note-${caseId}`)?.value.trim();
+    if (!note) { alert('Enter your findings before submitting.'); return; }
+    c.reporterNote = note;
+    c.status = 'completed';
+    const sc = {
+      assigned:  { bg: '#1e3a5f', text: '#60a5fa', label: 'Assigned' },
+      in_review: { bg: '#2e1065', text: '#a78bfa', label: 'In Review' },
+      completed: { bg: '#052e16', text: '#4ade80', label: 'Completed' },
+    };
+    const card = document.getElementById(`demo-case-${caseId}`);
+    if (card) card.innerHTML = demoCaseCardHTML(c, sc);
+  };
+
+  window.demoClearDashboard = () => {
+    _demoCases = [];
+    document.getElementById('demo-dashboard').innerHTML =
+      `<p style="font-size:13px;color:#475569;text-align:center;padding:32px 0">
+        Submit a case on the left — it will appear here.
+      </p>`;
+  };
+
+  // Init reporter list when panel opens
+  window.showPanel = (name) => {
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+    document.getElementById('panel-' + name).classList.add('active');
+    document.getElementById('nav-' + name).classList.add('active');
+    if (name === 'telereport') demoRenderReporters();
+    if (name === 'mycases') window.loadMyCases();
+  };
+
+  // ── My Cases (backend) ────────────────────────────────────────────
+
+  window.loadMyCases = async () => {
+    const listEl = document.getElementById('cases-list');
+    listEl.innerHTML = '<p style="font-size:13px;color:#64748b">Loading…</p>';
+    try {
+      const token = await window.getToken();
+      const r = await fetch(API + '/cases', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        listEl.innerHTML = `<div class="response-box error">${JSON.stringify(data, null, 2)}</div>`;
+        return;
+      }
+      const cases = data.cases || [];
+      if (!cases.length) {
+        listEl.innerHTML = '<p style="font-size:13px;color:#64748b">No cases found.</p>';
+        return;
+      }
+      listEl.innerHTML = cases.map(c => {
+        const files = Array.isArray(c.files) ? c.files : [];
+        const thumbs = files.map(f => {
+          const isVideo = (f.type || '').startsWith('video/');
+          return isVideo
+            ? `<div class="case-file-video" title="${f.name}">🎥</div>`
+            : `<img class="case-file-thumb" src="${f.url}" alt="${f.name}" onerror="this.style.display='none'" />`;
+        }).join('');
+        const statusCls = `case-status case-status-${c.status}`;
+        return `<div class="case-card">
+          <div class="case-card-header">
+            <span class="${statusCls}">${c.status.replace('_', ' ')}</span>
+            <span style="font-size:11px;color:#64748b;font-family:monospace">${c.id.slice(0,8)}…</span>
+            <span style="margin-left:auto;font-size:11px;color:#64748b">${new Date(c.createdAt).toLocaleString()}</span>
+          </div>
+          ${c.notes ? `<p style="font-size:13px;color:#94a3b8;margin-bottom:8px">${c.notes}</p>` : ''}
+          <div style="font-size:11px;color:#475569;margin-bottom:6px">${files.length} file${files.length !== 1 ? 's' : ''} · assigned to <code style="color:#818cf8">${c.assignedUid.slice(0,12)}…</code></div>
+          <div class="case-files">${thumbs}</div>
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+            ${['pending','in_review','completed'].map(s =>
+              `<button class="btn btn-sm ${s === c.status ? 'btn-primary' : 'btn-secondary'}"
+                onclick="updateCaseStatus('${c.id}', '${s}')">${s.replace('_', ' ')}</button>`
+            ).join('')}
+          </div>
+        </div>`;
+      }).join('');
+    } catch(e) {
+      listEl.innerHTML = `<div class="response-box error">${e.message}</div>`;
+    }
+  };
+
+  window.updateCaseStatus = async (id, status) => {
+    try {
+      const token = await window.getToken();
+      const r = await fetch(API + `/cases/${id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok) { window.loadMyCases(); }
+      else { alert('Failed: ' + (data.message || r.status)); }
+    } catch(e) { alert(e.message); }
+  };
+
+  // ── Transactions ────────────────────────────────────────────────
+
+  window.fetchTransactions = async () => {
+    const uid = document.getElementById('txn-uid').value.trim();
+    if (!uid) { alert('Enter a Firebase UID'); return; }
+
+    const tableEl = document.getElementById('txns-table');
+    const resEl   = document.getElementById('txns-res');
+    tableEl.innerHTML = '<p style="font-size:13px;color:#64748b">Loading…</p>';
+    resEl.style.display = 'none';
+
+    try {
+      const token = await window.getToken();
+      const r = await fetch(API + `/credits/transactions/${uid}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        tableEl.innerHTML = '';
+        resEl.textContent = JSON.stringify(data, null, 2); resEl.className = 'response-box error'; resEl.style.display = '';
+        return;
+      }
+      const txns = data.transactions || [];
+      if (!txns.length) {
+        tableEl.innerHTML = '<p style="font-size:13px;color:#64748b">No transactions found.</p>';
+        return;
+      }
+      tableEl.innerHTML = `<table>
+        <thead><tr><th>Date</th><th>Delta</th><th>Reason</th><th>Case UUID</th><th>Admin</th></tr></thead>
+        <tbody>${txns.map(t => `<tr>
+          <td style="color:#64748b;font-size:12px">${new Date(t.createdAt).toLocaleString()}</td>
+          <td style="font-weight:600;color:${t.delta > 0 ? '#4ade80' : '#f87171'}">${t.delta > 0 ? '+' : ''}${t.delta}</td>
+          <td style="color:#94a3b8">${t.reason}</td>
+          <td style="font-size:11px;color:#475569;font-family:monospace">${t.caseUuid || '—'}</td>
+          <td style="font-size:11px;color:#475569;font-family:monospace">${(t.adminUserId || '—').slice(0,8)}</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    } catch(e) {
+      tableEl.innerHTML = '';
+      resEl.textContent = JSON.stringify({ error: e.message }, null, 2);
+      resEl.className = 'response-box error'; resEl.style.display = '';
+    }
+  };
+</script>
+</body>
+</html>
