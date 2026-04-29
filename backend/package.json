@@ -5,7 +5,7 @@
   "main": "dist/server.js",
   "type": "commonjs",
   "scripts": {
-    "build": "npm install --include=dev && prisma generate && tsc",
+    "build": "prisma generate && tsc",
     "start": "node dist/server.js"
   },
   "engines": {
