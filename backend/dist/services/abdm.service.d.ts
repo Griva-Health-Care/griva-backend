@@ -122,7 +122,7 @@ export declare function getAbdmSession(userId: string): Promise<{
     accessToken: string;
     refreshToken: string | null;
     expiresAt: Date;
-} | null>;
+}>;
 export declare class AbdmNotImplementedError extends Error {
     constructor(method: string);
 }
