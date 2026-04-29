@@ -18,8 +18,7 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "firebase-admin": "^13.8.0",
-    "pdfkit": "^0.18.0",
-    "ts-node": "^10.9.2"
+    "pdfkit": "^0.18.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -27,6 +26,7 @@
     "@types/node": "^25.6.0",
     "@types/pdfkit": "^0.17.6",
     "prisma": "^7.7.0",
+    "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^6.0.2"
   }
