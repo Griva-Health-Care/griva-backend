@@ -13,6 +13,7 @@ import 'login_page.dart';
 import 'services/network_service.dart';
 import 'widgets/centralized_footer.dart';
 import 'services/auth_service.dart';
+import 'services/griva_api_service.dart';
 
 class HomePage extends StatefulWidget {
   final String? userEmail;
@@ -37,6 +38,7 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _fetchPatients();
     _loadUserData();
+    GrivaApiService.instance.warmUp();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Request location permission BEFORE showing the popup so the system
       // dialog does not interfere with the overlay used by showMenu.

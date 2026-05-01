@@ -1,9 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 /// REST client for the Griva Node.js backend (port 5000).
 /// Authenticates every request with the Firebase ID token of the
@@ -14,9 +14,8 @@ class GrivaApiService {
 
   static String get _base {
     const env = String.fromEnvironment('GRIVA_NODE_HOST');
-    if (env.isNotEmpty) return 'http://$env:5000';
-    if (!kIsWeb && Platform.isAndroid) return 'http://10.0.2.2:5000';
-    return 'http://localhost:5000';
+    if (env.isNotEmpty) return env; // caller passes full URL incl. scheme
+    return 'https://griva-backend.onrender.com';
   }
 
   // ── Auth helpers ──────────────────────────────────────────────────────────
@@ -24,7 +23,7 @@ class GrivaApiService {
   Future<String> _token() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception('Not signed in');
-    final token = await user.getIdToken();
+    final token = await user.getIdToken(true);
     if (token == null) throw Exception('Failed to get auth token');
     return token;
   }
@@ -36,34 +35,51 @@ class GrivaApiService {
 
   // ── Generic request helpers ───────────────────────────────────────────────
 
-  Future<dynamic> _get(String path) async {
-    final res = await http.get(
-      Uri.parse('$_base$path'),
-      headers: await _headers(),
-    );
-    return _parse(res);
-  }
+  static const _timeout = Duration(seconds: 65); // covers Render free-tier cold start (~50s)
+  static const _retryDelay = Duration(seconds: 4);
 
-  Future<dynamic> _post(String path, Map<String, dynamic> body) async {
-    final res = await http.post(
-      Uri.parse('$_base$path'),
-      headers: await _headers(),
-      body: jsonEncode(body),
-    );
+  Future<dynamic> _get(String path) => _withRetry(() async {
+    final res = await http
+        .get(Uri.parse('$_base$path'), headers: await _headers())
+        .timeout(_timeout);
     return _parse(res);
-  }
+  });
 
-  Future<dynamic> _put(String path, Map<String, dynamic> body) async {
-    final res = await http.put(
-      Uri.parse('$_base$path'),
-      headers: await _headers(),
-      body: jsonEncode(body),
-    );
+  Future<dynamic> _post(String path, Map<String, dynamic> body) => _withRetry(() async {
+    final res = await http
+        .post(Uri.parse('$_base$path'), headers: await _headers(), body: jsonEncode(body))
+        .timeout(_timeout);
     return _parse(res);
+  });
+
+  Future<dynamic> _put(String path, Map<String, dynamic> body) => _withRetry(() async {
+    final res = await http
+        .put(Uri.parse('$_base$path'), headers: await _headers(), body: jsonEncode(body))
+        .timeout(_timeout);
+    return _parse(res);
+  });
+
+  /// Retries once on network/timeout errors. Never retries on 4xx/5xx (those are real errors).
+  Future<T> _withRetry<T>(Future<T> Function() fn) async {
+    try {
+      return await fn();
+    } on GrivaApiException {
+      rethrow; // server returned a real error — don't retry
+    } catch (_) {
+      // Network error or timeout — server may be cold-starting, wait then retry once
+      await Future.delayed(_retryDelay);
+      return await fn();
+    }
   }
 
   dynamic _parse(http.Response res) {
-    final body = jsonDecode(res.body);
+    dynamic body;
+    try {
+      body = jsonDecode(res.body);
+    } catch (_) {
+      // Non-JSON response (e.g. Render gateway page during cold start)
+      throw GrivaApiException(res.statusCode, 'Server is starting up, please try again.');
+    }
     if (res.statusCode >= 400) {
       final msg = (body is Map ? body['message'] : null) ?? res.reasonPhrase;
       throw GrivaApiException(res.statusCode, msg?.toString() ?? 'Error');
@@ -71,11 +87,47 @@ class GrivaApiService {
     return body;
   }
 
+  // ── Warm-up (call once at app start to wake Render free-tier server) ────────
+
+  /// Pings /health silently. Never throws — failures are ignored.
+  Future<void> warmUp() async {
+    try {
+      await http
+          .get(Uri.parse('$_base/health'))
+          .timeout(const Duration(seconds: 70));
+    } catch (_) {
+      // Intentionally silent — this is a best-effort wake-up call
+    }
+  }
+
   // ── User ──────────────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> getMe() async {
     final data = await _get('/users/me');
     return data['user'] as Map<String, dynamic>;
+  }
+
+  // ── File upload (replaces Firebase Storage) ──────────────────────────────
+
+  Future<GrivaFile> uploadFile(Uint8List bytes, String filename, String mimeType) async {
+    final token = await _token();
+    final request = http.MultipartRequest('POST', Uri.parse('$_base/cases/upload'))
+      ..headers['Authorization'] = 'Bearer $token'
+      ..files.add(http.MultipartFile.fromBytes('file', bytes,
+          filename: filename,
+          contentType: MediaType.parse(mimeType)));
+    final streamed = await request.send();
+    final body = jsonDecode(await streamed.stream.bytesToString());
+    if (streamed.statusCode >= 400) {
+      throw GrivaApiException(streamed.statusCode,
+          (body is Map ? body['message'] : null)?.toString() ?? 'Upload failed');
+    }
+    return GrivaFile(
+      url : body['url']  as String,
+      name: body['name'] as String,
+      type: body['type'] as String,
+      size: body['size'] as int,
+    );
   }
 
   // ── Cases — reporter list ─────────────────────────────────────────────────
