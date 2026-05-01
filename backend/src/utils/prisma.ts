@@ -1,17 +1,19 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 
-console.log('[ENV] Checking DATABASE_URL...');
 const connectionString = process.env.DATABASE_URL;
-console.log(`[ENV] DATABASE_URL present: ${connectionString ? 'YES' : 'NO'}`);
 
 if (!connectionString) {
-  console.error('[ENV] FATAL: DATABASE_URL is not set. Set it in Render → Environment.');
+  console.error('[DB] FATAL: DATABASE_URL is not set.');
   process.exit(1);
 }
 
-console.log('[DB] Initializing Prisma...');
-const adapter = new PrismaPg({ connectionString });
+// Render-hosted Postgres requires SSL. Append sslmode=require if not already present.
+const dbUrl = connectionString.includes('sslmode')
+  ? connectionString
+  : `${connectionString}${connectionString.includes('?') ? '&' : '?'}sslmode=require`;
+
+const adapter = new PrismaPg({ connectionString: dbUrl });
 export const prisma = new PrismaClient({ adapter });
 
 export async function connectWithRetry(maxRetries = 3): Promise<void> {
@@ -22,9 +24,9 @@ export async function connectWithRetry(maxRetries = 3): Promise<void> {
       console.log('[DB] Connected successfully');
       return;
     } catch (err) {
-      console.error(`[DB] Connection attempt ${attempt} failed:`, (err as Error).message);
+      console.error(`[DB] Attempt ${attempt} failed:`, (err as Error).message);
       if (attempt === maxRetries) {
-        console.error('[DB] FATAL: Could not connect to database after', maxRetries, 'attempts');
+        console.error('[DB] FATAL: Could not connect after', maxRetries, 'attempts');
         process.exit(1);
       }
       await new Promise(r => setTimeout(r, 2000 * attempt));
