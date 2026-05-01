@@ -63,6 +63,21 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// ── One-time admin setup — DELETE AFTER FIRST USE ─────────────────────────────
+import { prisma as _setupPrisma } from './utils/prisma';
+app.get('/setup-admin', async (req, res) => {
+  if (req.query['secret'] !== 'griva-setup-2024') {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
+  const email = req.query['email'] as string;
+  if (!email) return res.status(400).json({ message: 'email required' });
+  const user = await _setupPrisma.user.updateMany({
+    where: { email },
+    data:  { role: 'superadmin' },
+  });
+  res.json({ updated: user.count, email });
+});
+
 // ── Audit + routes ────────────────────────────────────────────────────────────
 app.use(auditMiddleware);
 
