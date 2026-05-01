@@ -9,7 +9,36 @@ const prisma_1 = require("../utils/prisma");
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const role_middleware_1 = require("../middleware/role.middleware");
 const pdfkit_1 = __importDefault(require("pdfkit"));
+const multer_1 = __importDefault(require("multer"));
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
 const router = (0, express_1.Router)();
+// ── File upload (replaces Firebase Storage) ───────────────────────────────────
+const uploadsDir = path_1.default.join(process.cwd(), 'uploads');
+if (!fs_1.default.existsSync(uploadsDir))
+    fs_1.default.mkdirSync(uploadsDir, { recursive: true });
+const storage = multer_1.default.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadsDir),
+    filename: (_req, file, cb) => {
+        const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        cb(null, `${unique}${path_1.default.extname(file.originalname)}`);
+    },
+});
+const upload = (0, multer_1.default)({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
+// POST /cases/upload  — upload one file, returns { url, name, type, size }
+router.post('/upload', auth_middleware_1.authMiddleware, upload.single('file'), (req, res) => {
+    if (!req.file) {
+        res.status(400).json({ message: 'No file received' });
+        return;
+    }
+    const host = `${req.protocol}://${req.get('host')}`;
+    res.json({
+        url: `${host}/uploads/${req.file.filename}`,
+        name: req.file.filename,
+        type: req.file.mimetype,
+        size: req.file.size,
+    });
+});
 // ── Helpers ───────────────────────────────────────────────────────────────────
 /** Pick available tele_reporter with fewest active cases (load balancing). */
 async function autoAssign() {

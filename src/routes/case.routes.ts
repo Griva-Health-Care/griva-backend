@@ -4,8 +4,37 @@ import { prisma } from '../utils/prisma';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { requireRole } from '../middleware/role.middleware';
 import PDFDocument from 'pdfkit';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 const router = Router();
+
+// ── File upload (replaces Firebase Storage) ───────────────────────────────────
+
+const uploadsDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (_req, file, cb) => {
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    cb(null, `${unique}${path.extname(file.originalname)}`);
+  },
+});
+const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
+
+// POST /cases/upload  — upload one file, returns { url, name, type, size }
+router.post('/upload', authMiddleware, upload.single('file'), (req, res) => {
+  if (!req.file) { res.status(400).json({ message: 'No file received' }); return; }
+  const host = `${req.protocol}://${req.get('host')}`;
+  res.json({
+    url : `${host}/uploads/${req.file.filename}`,
+    name: req.file.filename,
+    type: req.file.mimetype,
+    size: req.file.size,
+  });
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
