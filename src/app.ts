@@ -3,11 +3,12 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
-import userRoutes  from './routes/user.routes';
-import adminRoutes from './routes/admin.routes';
-import creditRoutes from './routes/credit.routes';
-import caseRoutes  from './routes/case.routes';
-import abdmRoutes  from './routes/abdm.routes';
+import userRoutes    from './routes/user.routes';
+import adminRoutes   from './routes/admin.routes';
+import creditRoutes  from './routes/credit.routes';
+import caseRoutes    from './routes/case.routes';
+import abdmRoutes    from './routes/abdm.routes';
+import patientRoutes from './routes/patient.routes';
 import { auditMiddleware } from './middleware/audit.middleware';
 
 const app = express();
@@ -65,11 +66,12 @@ app.get('/health', (_req, res) => {
 // ── Audit + routes ────────────────────────────────────────────────────────────
 app.use(auditMiddleware);
 
-app.use('/users',   userRoutes);
-app.use('/admin',   adminRoutes);
-app.use('/credits', creditRoutes);
-app.use('/cases',   caseRoutes);
-app.use('/abdm',    abdmRoutes);
+app.use('/users',    userRoutes);
+app.use('/admin',    adminRoutes);
+app.use('/credits',  creditRoutes);
+app.use('/cases',    caseRoutes);
+app.use('/abdm',     abdmRoutes);
+app.use('/patients', patientRoutes);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req, res) => {

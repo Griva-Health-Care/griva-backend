@@ -86,38 +86,89 @@ router.put('/users/:id/status', ...adminOnly, async (req, res) => {
   }
 });
 
-// GET /admin/doctor-stats — returns each doctor's name, patient count, and report count
-router.get('/doctor-stats', ...adminOnly, async (_req, res) => {
+// GET /admin/overview — name, patient count, and report count for all doctors and diagnostic centers.
+// Doctors:             reportCount = patients with hasReport = true
+// Diagnostic centers: reportCount = completed TeleCases they submitted
+router.get('/overview', ...adminOnly, async (_req, res) => {
   try {
-    const doctors = await prisma.user.findMany({
-      where: { role: 'doctor' },
-      select: { id: true, firebaseUid: true, fullName: true },
+    const users = await prisma.user.findMany({
+      where: { role: { in: ['doctor', 'diagnostic'] } },
+      select: {
+        id:       true,
+        fullName: true,
+        email:    true,
+        role:     true,
+        hospital: true,
+        patients: {
+          select: { hasReport: true },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
     });
 
+    // For diagnostic centers, also fetch their completed TeleCase count
+    const diagnosticIds = users
+      .filter((u) => u.role === 'diagnostic')
+      .map((u) => u.id);
+
+    const teleCaseCounts = diagnosticIds.length
+      ? await prisma.teleCase.groupBy({
+          by:     ['submittedBy'],
+          where:  { submittedBy: { in: diagnosticIds }, status: 'completed' },
+          _count: { id: true },
+        })
+      : [];
+
+    const teleCountMap = new Map(
+      teleCaseCounts.map((r) => [r.submittedBy, r._count.id])
+    );
+
+    // Fetch Firestore profiles for all users in parallel
     const db = getFirestore();
-
-    const stats = await Promise.all(
-      doctors.map(async (doctor) => {
-        const [patientSnap, reportCount] = await Promise.all([
-          db.collection('patients')
-            .where('doctorId', '==', doctor.firebaseUid)
-            .count()
-            .get(),
-          prisma.teleCase.count({ where: { submittedBy: doctor.id } }),
-        ]);
-
-        return {
-          name: doctor.fullName ?? 'Unknown',
-          patientCount: patientSnap.data().count,
-          reportCount,
-        };
+    const profiles = await Promise.all(
+      users.map(async (u) => {
+        try {
+          // Find the firebaseUid for this user
+          const fullUser = await prisma.user.findUnique({
+            where: { id: u.id },
+            select: { firebaseUid: true, createdAt: true },
+          });
+          if (!fullUser) return null;
+          const doc = await db.collection('doctor_profiles').doc(fullUser.firebaseUid).get();
+          return doc.exists ? { ...doc.data(), createdAt: fullUser.createdAt } : { createdAt: fullUser.createdAt };
+        } catch {
+          return null;
+        }
       })
     );
 
-    res.json({ doctors: stats });
+    const rows = users.map((u, i) => {
+      const patientCount = u.patients.length;
+      const reportCount  = u.role === 'diagnostic'
+        ? (teleCountMap.get(u.id) ?? 0)
+        : u.patients.filter((p) => p.hasReport).length;
+      const profile = profiles[i] as Record<string, any> | null;
+
+      return {
+        name:          profile?.['fullName']      ?? u.fullName ?? u.email,
+        email:         u.email,
+        role:          u.role,
+        phone:         profile?.['phone']         ?? null,
+        hospital:      profile?.['hospital']      ?? u.hospital ?? null,
+        licenseNumber: profile?.['licenseNumber'] ?? null,
+        city:          profile?.['city']          ?? null,
+        state:         profile?.['state']         ?? null,
+        accountType:   profile?.['accountType']   ?? u.role,
+        patientCount,
+        reportCount,
+        joinedAt:      profile?.['createdAt']     ?? null,
+      };
+    });
+
+    res.json({ users: rows });
   } catch (error) {
     console.error('[ADMIN]', error instanceof Error ? error.message : error);
-    res.status(500).json({ message: 'Failed to fetch doctor stats' });
+    res.status(500).json({ message: 'Failed to fetch overview' });
   }
 });
 
