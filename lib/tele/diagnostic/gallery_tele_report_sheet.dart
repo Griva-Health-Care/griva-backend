@@ -1,5 +1,4 @@
 import 'dart:typed_data';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import '../../services/griva_api_service.dart';
 
@@ -66,7 +65,12 @@ class _GalleryTeleReportSheetState extends State<GalleryTeleReportSheet> {
       final list = await GrivaApiService.instance.listReporters();
       setState(() { _reporters = list; _loadingReporters = false; });
     } catch (e) {
-      setState(() { _reporterError = e.toString(); _loadingReporters = false; });
+      // ignore: avoid_print
+      print('[GrivaReporters] ERROR type=${e.runtimeType} msg=$e');
+      final msg = e is GrivaApiException
+          ? '${e.statusCode}: ${e.message}'
+          : 'Network error: $e';
+      setState(() { _reporterError = msg; _loadingReporters = false; });
     }
   }
 
@@ -88,42 +92,23 @@ class _GalleryTeleReportSheetState extends State<GalleryTeleReportSheet> {
 
     try {
       final ts       = DateTime.now().millisecondsSinceEpoch;
-      final caseId   = 'case_$ts';
       final uploaded = <GrivaFile>[];
 
-      // Upload images to Firebase Storage
+      // Upload images to backend
       for (var i = 0; i < widget.selectedImages.length; i++) {
-        final name = 'img_${ts}_$i.jpg';
         setState(() => _statusLabel = 'Uploading image ${i + 1} of ${widget.selectedImages.length}…');
-        final ref  = FirebaseStorage.instance.ref('tele_cases/$caseId/$name');
-        final task = ref.putData(widget.selectedImages[i],
-            SettableMetadata(contentType: 'image/jpeg'));
-        final snapshot = await task;
-        final url  = await snapshot.ref.getDownloadURL();
-        uploaded.add(GrivaFile(
-          url : url,
-          name: name,
-          type: 'image/jpeg',
-          size: widget.selectedImages[i].lengthInBytes,
-        ));
+        final file = await GrivaApiService.instance.uploadFile(
+            widget.selectedImages[i], 'img_${ts}_$i.jpg', 'image/jpeg');
+        uploaded.add(file);
         setState(() => _uploadedCount = i + 1);
       }
 
-      // Upload videos to Firebase Storage
+      // Upload videos to backend
       for (var i = 0; i < widget.selectedVideos.length; i++) {
-        final name = 'vid_${ts}_$i.mp4';
         setState(() => _statusLabel = 'Uploading video ${i + 1} of ${widget.selectedVideos.length}…');
-        final ref  = FirebaseStorage.instance.ref('tele_cases/$caseId/$name');
-        final task = ref.putData(widget.selectedVideos[i],
-            SettableMetadata(contentType: 'video/mp4'));
-        final snapshot = await task;
-        final url  = await snapshot.ref.getDownloadURL();
-        uploaded.add(GrivaFile(
-          url : url,
-          name: name,
-          type: 'video/mp4',
-          size: widget.selectedVideos[i].lengthInBytes,
-        ));
+        final file = await GrivaApiService.instance.uploadFile(
+            widget.selectedVideos[i], 'vid_${ts}_$i.mp4', 'video/mp4');
+        uploaded.add(file);
         setState(() => _uploadedCount = widget.selectedImages.length + i + 1);
       }
 
@@ -141,7 +126,7 @@ class _GalleryTeleReportSheetState extends State<GalleryTeleReportSheet> {
       final msg = result.unassigned
           ? 'Case queued — no reporters available right now. Admin will assign manually.'
           : result.autoAssigned
-              ? 'Auto-assigned to an available reporter. ${totalFiles} file${totalFiles > 1 ? 's' : ''} uploaded.'
+              ? 'Auto-assigned to an available reporter. $totalFiles file${totalFiles > 1 ? 's' : ''} uploaded.'
               : 'Case sent to ${_selectedReporter!.displayName}. $totalFiles file${totalFiles > 1 ? 's' : ''} uploaded.';
 
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
