@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Griva Admin Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f1f5f9;
+      color: #1e293b;
+      min-height: 100vh;
+    }
+
+    /* ── Login screen ──────────────────────────────────────────────────── */
+    #login-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .login-card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.08);
+      padding: 40px 36px;
+      width: 100%;
+      max-width: 380px;
+    }
+    .login-card h1 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #0f172a;
+    }
+    .login-card p { font-size: 13px; color: #64748b; margin-bottom: 28px; }
+    .login-card label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: #374151; }
+    .login-card input {
+      width: 100%; padding: 10px 12px; border: 1px solid #d1d5db;
+      border-radius: 8px; font-size: 14px; margin-bottom: 16px;
+      outline: none; transition: border-color .15s;
+    }
+    .login-card input:focus { border-color: #6366f1; }
+    .btn-primary {
+      width: 100%; padding: 11px; background: #6366f1; color: #fff;
+      border: none; border-radius: 8px; font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: background .15s;
+    }
+    .btn-primary:hover { background: #4f46e5; }
+    .btn-primary:disabled { background: #a5b4fc; cursor: not-allowed; }
+    #login-error { color: #ef4444; font-size: 13px; margin-top: 10px; min-height: 18px; }
+
+    /* ── Dashboard ─────────────────────────────────────────────────────── */
+    #dashboard-screen { display: none; }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 14px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header .logo { font-size: 18px; font-weight: 700; color: #0f172a; }
+    header .logo span { color: #6366f1; }
+    header .user-info { font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 12px; }
+    .btn-logout {
+      padding: 6px 14px; background: #f1f5f9; border: 1px solid #e2e8f0;
+      border-radius: 6px; font-size: 13px; cursor: pointer; color: #374151;
+    }
+    .btn-logout:hover { background: #e2e8f0; }
+
+    .main { padding: 28px; }
+    .page-title { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+    .page-sub   { font-size: 13px; color: #64748b; margin-bottom: 24px; }
+
+    /* ── Stats cards ───────────────────────────────────────────────────── */
+    .stats-row { display: flex; gap: 16px; margin-bottom: 28px; flex-wrap: wrap; }
+    .stat-card {
+      background: #fff; border-radius: 10px; border: 1px solid #e2e8f0;
+      padding: 18px 22px; flex: 1; min-width: 160px;
+    }
+    .stat-card .label { font-size: 12px; color: #64748b; font-weight: 500; text-transform: uppercase; letter-spacing: .5px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; color: #0f172a; }
+    .stat-card.indigo .value { color: #6366f1; }
+    .stat-card.green  .value { color: #10b981; }
+    .stat-card.orange .value { color: #f59e0b; }
+
+    /* ── Filters ───────────────────────────────────────────────────────── */
+    .controls {
+      display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;
+    }
+    .controls input[type=search] {
+      padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 8px;
+      font-size: 13px; width: 220px; outline: none;
+    }
+    .controls input[type=search]:focus { border-color: #6366f1; }
+    .controls select {
+      padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 8px;
+      font-size: 13px; background: #fff; cursor: pointer; outline: none;
+    }
+    .btn-refresh {
+      padding: 8px 16px; background: #6366f1; color: #fff; border: none;
+      border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+      margin-left: auto;
+    }
+    .btn-refresh:hover { background: #4f46e5; }
+
+    /* ── Table ─────────────────────────────────────────────────────────── */
+    .table-wrap {
+      background: #fff; border-radius: 10px; border: 1px solid #e2e8f0;
+      overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead { background: #f8fafc; }
+    thead th {
+      padding: 11px 14px; text-align: left; font-weight: 600;
+      color: #475569; font-size: 12px; text-transform: uppercase;
+      letter-spacing: .4px; border-bottom: 1px solid #e2e8f0;
+      white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid #f1f5f9; transition: background .1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #f8fafc; }
+    tbody td { padding: 12px 14px; color: #1e293b; vertical-align: middle; }
+    tbody td.muted { color: #94a3b8; font-style: italic; }
+
+    .badge {
+      display: inline-block; padding: 2px 9px; border-radius: 999px;
+      font-size: 11px; font-weight: 600; text-transform: capitalize;
+    }
+    .badge-doctor     { background: #ede9fe; color: #7c3aed; }
+    .badge-diagnostic { background: #d1fae5; color: #065f46; }
+
+    .count-pill {
+      display: inline-block; min-width: 28px; text-align: center;
+      background: #f1f5f9; border-radius: 6px; padding: 2px 8px;
+      font-weight: 600; color: #0f172a;
+    }
+
+    /* ── Loading / error ───────────────────────────────────────────────── */
+    #table-status { padding: 32px; text-align: center; color: #64748b; font-size: 14px; }
+
+    @media (max-width: 700px) {
+      .main { padding: 16px; }
+      thead th:nth-child(n+5) { display: none; }
+      tbody td:nth-child(n+5) { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════ LOGIN ══════════════════════════════════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>Griva <span>Admin</span></h1>
+    <p>Sign in with your admin account to continue.</p>
+    <label for="email">Email</label>
+    <input id="email" type="email" placeholder="admin@grivahealth.com" autocomplete="username" />
+    <label for="password">Password</label>
+    <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
+    <button class="btn-primary" id="login-btn" onclick="doLogin()">Sign In</button>
+    <div id="login-error"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════ DASHBOARD ═══════════════════════════════ -->
+<div id="dashboard-screen">
+  <header>
+    <div class="logo">Griva <span>Admin</span></div>
+    <div class="user-info">
+      <span id="admin-email"></span>
+      <button class="btn-logout" onclick="doLogout()">Sign Out</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <div class="page-title">Doctors &amp; Diagnostic Centers</div>
+    <div class="page-sub">All registered users with their patient and report counts.</div>
+
+    <div class="stats-row">
+      <div class="stat-card indigo">
+        <div class="label">Total Users</div>
+        <div class="value" id="stat-total">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Doctors</div>
+        <div class="value" id="stat-doctors">—</div>
+      </div>
+      <div class="stat-card green">
+        <div class="label">Diagnostic Centers</div>
+        <div class="value" id="stat-diagnostic">—</div>
+      </div>
+      <div class="stat-card orange">
+        <div class="label">Total Patients</div>
+        <div class="value" id="stat-patients">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Total Reports</div>
+        <div class="value" id="stat-reports">—</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <input type="search" id="search-input" placeholder="Search by name, hospital, city…" oninput="applyFilters()" />
+      <select id="role-filter" onchange="applyFilters()">
+        <option value="">All Types</option>
+        <option value="doctor">Doctors</option>
+        <option value="diagnostic">Diagnostic Centers</option>
+      </select>
+      <button class="btn-refresh" onclick="loadData()">↻ Refresh</button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Hospital / Center</th>
+            <th>Phone</th>
+            <th>City</th>
+            <th>State</th>
+            <th>License No.</th>
+            <th>Patients</th>
+            <th>Reports</th>
+            <th>Joined</th>
+          </tr>
+        </thead>
+        <tbody id="table-body">
+          <tr><td colspan="11" id="table-status">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase JS SDK (compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
+<script>
+  // ── Firebase config ────────────────────────────────────────────────────────
+  const firebaseConfig = {
+    apiKey:            "AIzaSyDzzqjNQNL4-Jgjq7D98Ns6sPkcZ0LkdSQ",
+    authDomain:        "griva-app-18f0f.firebaseapp.com",
+    projectId:         "griva-app-18f0f",
+    storageBucket:     "griva-app-18f0f.firebasestorage.app",
+    messagingSenderId: "687756687445",
+    appId:             "1:687756687445:web:88b8e8bdae8f9c523ebcdc",
+  };
+  firebase.initializeApp(firebaseConfig);
+
+  const API_BASE = 'https://griva-backend.onrender.com';
+
+  let allRows = [];
+
+  // ── Auth state ─────────────────────────────────────────────────────────────
+  firebase.auth().onAuthStateChanged(async (user) => {
+    if (user) {
+      document.getElementById('login-screen').style.display    = 'none';
+      document.getElementById('dashboard-screen').style.display = 'block';
+      document.getElementById('admin-email').textContent        = user.email;
+      loadData();
+    } else {
+      document.getElementById('login-screen').style.display     = 'flex';
+      document.getElementById('dashboard-screen').style.display = 'none';
+    }
+  });
+
+  // ── Login ──────────────────────────────────────────────────────────────────
+  async function doLogin() {
+    const email    = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    const errEl    = document.getElementById('login-error');
+    const btn      = document.getElementById('login-btn');
+
+    errEl.textContent = '';
+    btn.disabled      = true;
+    btn.textContent   = 'Signing in…';
+
+    try {
+      const cred = await firebase.auth().signInWithEmailAndPassword(email, password);
+      // Verify this user has admin role on the backend
+      const token = await cred.user.getIdToken();
+      const res   = await fetch(`${API_BASE}/admin/overview`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 403) {
+        await firebase.auth().signOut();
+        throw new Error('Access denied. This account does not have admin privileges.');
+      }
+    } catch (e) {
+      errEl.textContent = e.message.replace('Firebase: ', '').replace(/ \(auth.*\)\.?/, '');
+      btn.disabled      = false;
+      btn.textContent   = 'Sign In';
+    }
+  }
+
+  // Allow Enter key on password field
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('password').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') doLogin();
+    });
+  });
+
+  // ── Logout ─────────────────────────────────────────────────────────────────
+  async function doLogout() {
+    await firebase.auth().signOut();
+  }
+
+  // ── Load data ──────────────────────────────────────────────────────────────
+  async function loadData() {
+    setTableStatus('Loading…');
+    try {
+      const token = await firebase.auth().currentUser.getIdToken(true);
+      const res   = await fetch(`${API_BASE}/admin/overview`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      const data = await res.json();
+      allRows = data.users || [];
+      updateStats(allRows);
+      applyFilters();
+    } catch (e) {
+      setTableStatus(`Failed to load data: ${e.message}`);
+    }
+  }
+
+  // ── Stats ──────────────────────────────────────────────────────────────────
+  function updateStats(rows) {
+    document.getElementById('stat-total').textContent    = rows.length;
+    document.getElementById('stat-doctors').textContent  = rows.filter(r => r.role === 'doctor').length;
+    document.getElementById('stat-diagnostic').textContent = rows.filter(r => r.role === 'diagnostic').length;
+    document.getElementById('stat-patients').textContent = rows.reduce((s, r) => s + (r.patientCount || 0), 0);
+    document.getElementById('stat-reports').textContent  = rows.reduce((s, r) => s + (r.reportCount  || 0), 0);
+  }
+
+  // ── Filters ────────────────────────────────────────────────────────────────
+  function applyFilters() {
+    const q    = document.getElementById('search-input').value.toLowerCase();
+    const role = document.getElementById('role-filter').value;
+
+    const filtered = allRows.filter(r => {
+      const matchRole   = !role || r.role === role;
+      const matchSearch = !q ||
+        (r.name     || '').toLowerCase().includes(q) ||
+        (r.hospital || '').toLowerCase().includes(q) ||
+        (r.city     || '').toLowerCase().includes(q) ||
+        (r.state    || '').toLowerCase().includes(q) ||
+        (r.email    || '').toLowerCase().includes(q);
+      return matchRole && matchSearch;
+    });
+
+    renderTable(filtered);
+  }
+
+  // ── Render table ───────────────────────────────────────────────────────────
+  function renderTable(rows) {
+    const tbody = document.getElementById('table-body');
+
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="11" id="table-status">No records found.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rows.map((r, i) => `
+      <tr>
+        <td class="muted">${i + 1}</td>
+        <td>
+          <strong>${esc(r.name)}</strong>
+          <div style="font-size:11px;color:#94a3b8;margin-top:2px">${esc(r.email)}</div>
+        </td>
+        <td>
+          <span class="badge ${r.role === 'diagnostic' ? 'badge-diagnostic' : 'badge-doctor'}">
+            ${r.role === 'diagnostic' ? 'Diagnostic' : 'Doctor'}
+          </span>
+        </td>
+        <td>${r.hospital ? esc(r.hospital) : '<span class="muted">—</span>'}</td>
+        <td>${r.phone    ? esc(r.phone)    : '<span class="muted">—</span>'}</td>
+        <td>${r.city     ? esc(r.city)     : '<span class="muted">—</span>'}</td>
+        <td>${r.state    ? esc(r.state)    : '<span class="muted">—</span>'}</td>
+        <td style="font-size:12px">${r.licenseNumber ? esc(r.licenseNumber) : '<span class="muted">—</span>'}</td>
+        <td><span class="count-pill">${r.patientCount ?? 0}</span></td>
+        <td><span class="count-pill">${r.reportCount  ?? 0}</span></td>
+        <td style="font-size:12px;color:#64748b">${r.joinedAt ? fmtDate(r.joinedAt) : '—'}</td>
+      </tr>
+    `).join('');
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function setTableStatus(msg) {
+    document.getElementById('table-body').innerHTML =
+      `<tr><td colspan="11" style="padding:32px;text-align:center;color:#64748b">${msg}</td></tr>`;
+  }
+
+  function esc(str) {
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function fmtDate(val) {
+    try {
+      const d = val._seconds ? new Date(val._seconds * 1000) : new Date(val);
+      return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
+    } catch { return '—'; }
+  }
+</script>
+</body>
+</html>

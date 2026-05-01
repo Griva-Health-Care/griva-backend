@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'core/app_router.dart';
 import 'services/auth_service.dart';
 import 'services/fcm_service.dart';
+import 'services/profile_service.dart';
 import 'services/abdm_auth_service.dart';
+import 'screens/complete_profile_screen.dart';
 import 'screens/hpr_login_screen.dart';
 import 'widgets/centralized_footer.dart';
 
@@ -28,13 +31,20 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
   final _forgotEmailController = TextEditingController();
 
   // Signup controllers
-  final _signupNameController = TextEditingController();
-  final _signupEmailController = TextEditingController();
-  final _signupPasswordController = TextEditingController();
+  final _signupNameController            = TextEditingController();
+  final _signupEmailController           = TextEditingController();
+  final _signupPasswordController        = TextEditingController();
   final _signupConfirmPasswordController = TextEditingController();
+  final _signupPhoneController           = TextEditingController();
+  final _signupHospitalController        = TextEditingController();
+  final _signupLicenseController         = TextEditingController();
+  final _signupCityController            = TextEditingController();
+  final _signupStateController           = TextEditingController();
+  String _signupAccountType              = 'doctor';
 
   bool _isSignupLoading = false;
-  bool _isAbdmLoading = false;
+  bool _isAbdmLoading   = false;
+  bool _isGoogleLoading = false;
 
   final AbdmAuthService _abdmAuth = AbdmAuthService();
 
@@ -83,11 +93,7 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
 
     try {
       final email = _signupEmailController.text.trim();
-      final name = _signupNameController.text.trim();
-
-      debugPrint('[LOGIN] Signup started: $email');
-      debugPrint('[UI] Name: $name');
-      debugPrint('[UI] Email: $email');
+      final name  = _signupNameController.text.trim();
 
       final success = await _authService.register(
         email: email,
@@ -98,57 +104,81 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
       if (!mounted) return;
 
       if (success) {
-        debugPrint(
-          '[LOGIN] Signup successful, attempting auto-login verification',
-        );
-
-        // ✅ CRITICAL: Verify session before navigating
         final verified = await _authService.tryAutoLogin();
-
         if (!mounted) return;
 
         if (verified == null) {
-          debugPrint('[LOGIN] ❌ Auto-login verification failed');
-          _showErrorDialog(
-            'Session verification failed. Please log in manually.',
-          );
+          _showErrorDialog('Session verification failed. Please log in manually.');
           setState(() => _isSignupLoading = false);
           return;
         }
 
-        debugPrint('[LOGIN] ✅ Session verified, navigating to home');
+        // Save mandatory profile to Firestore
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (uid != null) {
+          await ProfileService.instance.saveProfile(
+            uid,
+            DoctorProfile(
+              fullName:      name,
+              phone:         _signupPhoneController.text.trim(),
+              hospital:      _signupHospitalController.text.trim(),
+              accountType:   _signupAccountType,
+              licenseNumber: _signupLicenseController.text.trim(),
+              city:          _signupCityController.text.trim(),
+              state:         _signupStateController.text.trim(),
+            ),
+          );
+        }
+
         _clearSignupForm();
         if (mounted) AppRouter.navigateToHome(context, userEmail: email);
       } else {
-        debugPrint('[LOGIN] ❌ Signup registration failed');
-        if (mounted) {
-          _showErrorDialog(
-            'Signup failed. Please check your email and try again.',
-          );
-        }
+        _showErrorDialog('Signup failed. Please check your email and try again.');
       }
     } catch (e) {
-      debugPrint('[LOGIN] Signup exception: $e');
-
       if (!mounted) return;
-
-      // Handle specific error cases
       String errorMessage = 'Signup failed. Please try again.';
-
-      if (e.toString().contains('409') ||
-          e.toString().contains('already exists')) {
-        errorMessage =
-            'This email is already registered. Please log in instead.';
+      if (e.toString().contains('409') || e.toString().contains('already exists')) {
+        errorMessage = 'This email is already registered. Please log in instead.';
       } else if (e.toString().contains('verification failed')) {
-        errorMessage =
-            'Session verification failed. Please try logging in manually.';
+        errorMessage = 'Session verification failed. Please try logging in manually.';
       }
-
       _showErrorDialog(errorMessage);
     }
 
-    if (mounted) {
-      setState(() => _isSignupLoading = false);
+    if (mounted) setState(() => _isSignupLoading = false);
+  }
+
+  // ================= GOOGLE SIGN-IN =================
+  void _signInWithGoogle() async {
+    setState(() => _isGoogleLoading = true);
+    try {
+      final result = await _authService.signInWithGoogle();
+      if (!mounted) return;
+
+      if (result.cancelled) return;
+
+      FcmService.instance.init();
+
+      if (result.needsProfile) {
+        // Profile incomplete — redirect to the mandatory profile form
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CompleteProfileScreen(
+              prefillName:  result.displayName,
+              prefillEmail: result.email,
+            ),
+          ),
+        );
+      } else {
+        AppRouter.navigateToHome(context, userEmail: result.email);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorDialog(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _isGoogleLoading = false);
     }
   }
 
@@ -157,45 +187,48 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
     _signupEmailController.clear();
     _signupPasswordController.clear();
     _signupConfirmPasswordController.clear();
+    _signupPhoneController.clear();
+    _signupHospitalController.clear();
+    _signupLicenseController.clear();
+    _signupCityController.clear();
+    _signupStateController.clear();
+    setState(() => _signupAccountType = 'doctor');
   }
 
   bool _validateSignupForm() {
-    debugPrint('[LOGIN] Validating signup form');
+    final checks = <String, String>{
+      'Full name':                _signupNameController.text.trim(),
+      'Email':                    _signupEmailController.text.trim(),
+      'Phone number':             _signupPhoneController.text.trim(),
+      'Hospital / clinic name':   _signupHospitalController.text.trim(),
+      'License number':           _signupLicenseController.text.trim(),
+      'City':                     _signupCityController.text.trim(),
+      'State':                    _signupStateController.text.trim(),
+    };
 
-    if (_signupNameController.text.trim().isEmpty) {
-      debugPrint('[LOGIN] Validation: empty name');
-      _showErrorDialog('Enter full name');
-      return false;
+    for (final entry in checks.entries) {
+      if (entry.value.isEmpty) {
+        _showErrorDialog('${entry.key} is required');
+        return false;
+      }
     }
 
-    if (_signupEmailController.text.trim().isEmpty) {
-      debugPrint('[LOGIN] Validation: empty email');
-      _showErrorDialog('Enter email');
-      return false;
-    }
-
-    if (!RegExp(
-      r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-    ).hasMatch(_signupEmailController.text)) {
-      debugPrint('[LOGIN] Validation: invalid email format');
-      _showErrorDialog('Invalid email');
+    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
+        .hasMatch(_signupEmailController.text)) {
+      _showErrorDialog('Invalid email address');
       return false;
     }
 
     if (_signupPasswordController.text.length < 8) {
-      debugPrint('[LOGIN] Validation: password too short');
-      _showErrorDialog('Password must be 8+ characters');
+      _showErrorDialog('Password must be at least 8 characters');
       return false;
     }
 
-    if (_signupPasswordController.text !=
-        _signupConfirmPasswordController.text) {
-      debugPrint('[LOGIN] Validation: passwords do not match');
+    if (_signupPasswordController.text != _signupConfirmPasswordController.text) {
       _showErrorDialog('Passwords do not match');
       return false;
     }
 
-    debugPrint('[LOGIN] Validation: all fields valid');
     return true;
   }
 
@@ -337,6 +370,21 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
           ],
         ),
         const SizedBox(height: 16),
+        OutlinedButton.icon(
+          onPressed: _isGoogleLoading ? null : _signInWithGoogle,
+          icon: _isGoogleLoading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.g_mobiledata, size: 24),
+          label: const Text('Continue with Google'),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(double.infinity, 48),
+          ),
+        ),
+        const SizedBox(height: 8),
         OutlinedButton.icon(
           onPressed: _isAbdmLoading ? null : _loginWithAbdm,
           icon: _isAbdmLoading
@@ -496,10 +544,12 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
     bool obscure = false,
     bool showPasswordToggle = false,
     VoidCallback? onTogglePasswordVisibility,
+    TextInputType keyboardType = TextInputType.text,
   }) {
     return TextField(
       controller: controller,
       obscureText: obscure,
+      keyboardType: keyboardType,
       style: const TextStyle(color: Colors.black),
       decoration: InputDecoration(
         hintText: hint,
@@ -522,42 +572,61 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
 
   Widget _buildSignupForm() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _inputField(
-          controller: _signupNameController,
-          hint: 'Full Name',
-          icon: Icons.person,
+        _inputField(controller: _signupNameController,  hint: 'Full Name',    icon: Icons.person),
+        const SizedBox(height: 12),
+        _inputField(controller: _signupEmailController, hint: 'Email',         icon: Icons.email,
+            keyboardType: TextInputType.emailAddress),
+        const SizedBox(height: 12),
+        _inputField(controller: _signupPhoneController, hint: 'Phone Number',  icon: Icons.phone,
+            keyboardType: TextInputType.phone),
+        const SizedBox(height: 12),
+
+        // Account type
+        DropdownButtonFormField<String>(
+          value: _signupAccountType,
+          decoration: InputDecoration(
+            hintText: 'Account Type',
+            prefixIcon: const Icon(Icons.badge),
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'doctor',            child: Text('Doctor / Physician')),
+            DropdownMenuItem(value: 'diagnostic_center', child: Text('Diagnostic Center')),
+          ],
+          onChanged: (v) => setState(() => _signupAccountType = v!),
         ),
         const SizedBox(height: 12),
+
         _inputField(
-          controller: _signupEmailController,
-          hint: 'Email',
-          icon: Icons.email,
+          controller: _signupHospitalController,
+          hint: _signupAccountType == 'diagnostic_center'
+              ? 'Diagnostic Center Name'
+              : 'Hospital / Clinic Name',
+          icon: Icons.local_hospital,
         ),
         const SizedBox(height: 12),
-        _inputField(
-          controller: _signupPasswordController,
-          hint: 'Password',
-          icon: Icons.lock,
-          obscure: true,
-        ),
+        _inputField(controller: _signupLicenseController, hint: 'Medical License / Reg. Number',
+            icon: Icons.verified),
         const SizedBox(height: 12),
-        _inputField(
-          controller: _signupConfirmPasswordController,
-          hint: 'Confirm Password',
-          icon: Icons.lock,
-          obscure: true,
-        ),
+        _inputField(controller: _signupCityController,  hint: 'City',  icon: Icons.location_city),
+        const SizedBox(height: 12),
+        _inputField(controller: _signupStateController, hint: 'State', icon: Icons.map),
+        const SizedBox(height: 12),
+        _inputField(controller: _signupPasswordController,        hint: 'Password',         icon: Icons.lock, obscure: true),
+        const SizedBox(height: 12),
+        _inputField(controller: _signupConfirmPasswordController, hint: 'Confirm Password',  icon: Icons.lock, obscure: true),
         const SizedBox(height: 20),
+
         ElevatedButton(
           onPressed: _isSignupLoading ? null : _signup,
-          style: ElevatedButton.styleFrom(
-            minimumSize: const Size(double.infinity, 48),
-          ),
-          child:
-              _isSignupLoading
-                  ? const CircularProgressIndicator()
-                  : const Text('Create Account'),
+          style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 48)),
+          child: _isSignupLoading
+              ? const CircularProgressIndicator()
+              : const Text('Create Account'),
         ),
       ],
     );
@@ -572,6 +641,11 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
     _signupEmailController.dispose();
     _signupPasswordController.dispose();
     _signupConfirmPasswordController.dispose();
+    _signupPhoneController.dispose();
+    _signupHospitalController.dispose();
+    _signupLicenseController.dispose();
+    _signupCityController.dispose();
+    _signupStateController.dispose();
     super.dispose();
   }
 }

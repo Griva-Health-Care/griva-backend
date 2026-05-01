@@ -211,6 +211,14 @@ class GrivaApiService {
 
   String reportPdfUrl(String caseId) => '$_base/cases/$caseId/report/pdf';
 
+  // ── Patient sync ──────────────────────────────────────────────────────────
+
+  /// Bulk-upsert patients to the backend for admin reporting.
+  /// Only sends uuid, name, and hasReport flag — no clinical data.
+  Future<void> syncPatientsToBackend(List<Map<String, dynamic>> patients) async {
+    await _post('/patients/sync', {'patients': patients});
+  }
+
   // ── FCM token ─────────────────────────────────────────────────────────────
 
   Future<void> updateFcmToken(String token) async {

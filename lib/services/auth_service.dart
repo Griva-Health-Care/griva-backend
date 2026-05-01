@@ -4,10 +4,12 @@ import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 import '../core/config.dart';
 import '../repositories/repository_factory.dart';
 import 'cloud_config_service.dart';
+import 'profile_service.dart';
 import 'session_service.dart';
 import 'sync_engine.dart';
 import 'user_service.dart' as app_user;
@@ -101,6 +103,54 @@ class AuthService {
       await _rollbackFirebaseUser(sdkUser);
       rethrow;
     }
+  }
+
+  // ================= GOOGLE SIGN-IN =================
+  /// Signs in with Google, then checks if the user's Firestore profile is
+  /// complete. Returns a [GoogleSignInResult] indicating whether to navigate
+  /// to home directly or to the profile-completion screen first.
+  Future<GoogleSignInResult> signInWithGoogle() async {
+    final googleUser = await GoogleSignIn().signIn();
+    if (googleUser == null) {
+      // User cancelled the picker
+      return GoogleSignInResult.cancelled();
+    }
+
+    final googleAuth = await googleUser.authentication;
+    final credential = fb.GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken:     googleAuth.idToken,
+    );
+
+    final userCred = await _firebase!.signInWithCredential(credential);
+    final fbUser   = userCred.user;
+    if (fbUser == null) throw Exception('Google sign-in failed');
+
+    // Upsert the local SQLite user so offline login works after Google auth.
+    await _upsertLocalUser(
+      email:    fbUser.email    ?? '',
+      password: fbUser.uid,     // uid used as password placeholder for offline bcrypt
+      fullName: fbUser.displayName ?? googleUser.displayName ?? '',
+      role:     'doctor',
+      isActive: true,
+    );
+
+    await _secureStorage.write(
+      key:   _sessionEmailKey,
+      value: (fbUser.email ?? '').trim().toLowerCase(),
+    );
+
+    await _postLoginInit();
+
+    // Check if the user has already completed their Firestore profile.
+    final profileComplete =
+        await ProfileService.instance.isProfileComplete(fbUser.uid);
+
+    return GoogleSignInResult(
+      email:         fbUser.email         ?? '',
+      displayName:   fbUser.displayName   ?? '',
+      needsProfile:  !profileComplete,
+    );
   }
 
   // ================= FORGOT PASSWORD =================
@@ -391,4 +441,21 @@ class AuthService {
       ),
     );
   }
+}
+
+class GoogleSignInResult {
+  final bool   cancelled;
+  final String email;
+  final String displayName;
+  final bool   needsProfile; // true → send user to CompleteProfileScreen
+
+  const GoogleSignInResult({
+    this.cancelled   = false,
+    this.email       = '',
+    this.displayName = '',
+    this.needsProfile = false,
+  });
+
+  factory GoogleSignInResult.cancelled() =>
+      const GoogleSignInResult(cancelled: true);
 }

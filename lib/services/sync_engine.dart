@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../db/app_database.dart';
 import '../db/tables/sync_queue.dart';
 import '../services/patient_service.dart' show Patient;
+import 'griva_api_service.dart';
 import 'session_service.dart';
 
 /// Processes the local [SyncQueue] table and pushes each entry to Firestore.
@@ -164,6 +165,23 @@ class SyncEngine {
           },
           SetOptions(merge: true),
         );
+    }
+
+    // Also sync to backend for admin reporting (best-effort — never blocks local sync).
+    if (operation != 'delete') {
+      try {
+        final hasReport = (patient.finalImpression?.isNotEmpty ?? false) ||
+            (patient.colposcopyFindings?.isNotEmpty ?? false);
+        await GrivaApiService.instance.syncPatientsToBackend([
+          {
+            'uuid':        patient.uuid,
+            'patientName': patient.patientName,
+            'hasReport':   hasReport,
+          }
+        ]);
+      } catch (e) {
+        debugPrint('[SYNC_ENGINE] Backend patient sync failed (non-fatal): $e');
+      }
     }
 
     // Mark the local row as synced.

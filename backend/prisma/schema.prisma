@@ -29,7 +29,25 @@ model User {
   updatedAt     DateTime @updatedAt
 
   abdmSession   AbdmSession?
+  patients      Patient[]
 
+  @@schema("node_app")
+}
+
+// Lightweight patient record synced from the Flutter app.
+// Stores only identity + report flag — full clinical data stays on-device.
+model Patient {
+  id          String   @id @default(uuid())
+  uuid        String   @unique           // stable cross-device UUID from Flutter
+  patientName String
+  userId      String                     // FK → User.id (doctor or diagnostic center)
+  hasReport   Boolean  @default(false)   // true once a PDF report has been generated
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
   @@schema("node_app")
 }
 
