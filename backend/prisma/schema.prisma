@@ -5,12 +5,12 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["node_app"]
+  schemas  = ["node_app", "public"]
 }
 
 model User {
   id            String   @id @default(uuid())
-  firebaseUid   String   @unique
+  supabaseUid   String   @unique
   email         String   @unique
   fullName      String?
   role          String   @default("doctor")
@@ -54,7 +54,7 @@ model Patient {
 // Tracks every credit top-up or deduction for a doctor account.
 model CreditTransaction {
   id          String   @id @default(uuid())
-  doctorUid   String
+  doctorUid   String                       // Supabase user UUID of the doctor
   delta       Int
   reason      String
   adminUserId String?
@@ -69,7 +69,7 @@ model CreditTransaction {
 model TeleCase {
   id            String    @id @default(uuid())
   submittedBy   String                        // User.id of submitter
-  assignedUid   String?                       // Firebase UID of assigned reporter (null = unassigned)
+  assignedUid   String?                       // Supabase UID of assigned reporter (null = unassigned)
   assignedBy    String?                       // User.id of admin who manually assigned, or "auto"
   notes         String?
   files         Json      @default("[]")      // [{ url, name, type, size }]
@@ -128,4 +128,36 @@ model AbdmSession {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@schema("node_app")
+}
+
+// Doctor / diagnostic-center identity profile.
+// In public schema so the Flutter Supabase client can read/write it directly.
+model DoctorProfile {
+  uid                String   @id            // Supabase user UUID
+  fullName           String   @default("")
+  phone              String   @default("")
+  hospital           String   @default("")
+  accountType        String   @default("")   // 'doctor' | 'diagnostic_center'
+  licenseNumber      String   @default("")
+  city               String   @default("")
+  state              String   @default("")
+  colposcopeSerialNo String   @default("")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @default(now()) @updatedAt
+
+  @@map("doctor_profiles")
+  @@schema("public")
+}
+
+// Per-doctor cloud configuration managed by the Griva admin panel.
+// In public schema so the Flutter Supabase client can read/write it directly.
+model DoctorConfig {
+  uid               String   @id            // Supabase user UUID
+  cloudSyncEnabled  Boolean  @default(false)
+  role              String   @default("solo")  // 'solo' | 'clinic' | 'diagnostic' | 'tele_reporter'
+  creditBalance     Int      @default(0)
+  updatedAt         DateTime @default(now()) @updatedAt
+
+  @@map("doctor_config")
+  @@schema("public")
 }

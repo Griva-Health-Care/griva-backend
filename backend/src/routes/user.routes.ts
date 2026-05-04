@@ -8,7 +8,7 @@ const router = Router();
 // Called by the Flutter app immediately after a successful Firebase registration.
 router.post('/register', authMiddleware, async (req, res) => {
   try {
-    const { firebaseUid, userId } = (req as any).user;
+    const { userId } = (req as any).user;
     const { fullName, hospital, role } = req.body as {
       fullName?: string;
       hospital?: string;

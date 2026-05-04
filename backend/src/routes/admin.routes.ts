@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { getFirestore } from 'firebase-admin/firestore';
 import { prisma } from '../utils/prisma';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { requireRole } from '../middleware/role.middleware';
@@ -11,23 +10,17 @@ const adminOnly = [authMiddleware, requireRole('admin', 'superadmin')];
 // GET /admin/users — list all users with optional role filter
 router.get('/users', ...adminOnly, async (req, res) => {
   try {
-    const role = typeof req.query.role === 'string' ? req.query.role : undefined;
+    const role     = typeof req.query.role     === 'string' ? req.query.role     : undefined;
     const isActive = typeof req.query.isActive === 'string' ? req.query.isActive : undefined;
 
     const users = await prisma.user.findMany({
       where: {
-        ...(role ? { role } : {}),
+        ...(role     ? { role }                                  : {}),
         ...(isActive !== undefined ? { isActive: isActive === 'true' } : {}),
       },
       select: {
-        id: true,
-        email: true,
-        fullName: true,
-        role: true,
-        hospital: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
+        id: true, email: true, fullName: true, role: true,
+        hospital: true, isActive: true, createdAt: true, updatedAt: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -42,7 +35,7 @@ router.get('/users', ...adminOnly, async (req, res) => {
 // PUT /admin/users/:id/role — change a user's role
 router.put('/users/:id/role', ...adminOnly, async (req, res) => {
   try {
-    const id = req.params['id'] as string;
+    const id   = req.params['id'] as string;
     const { role } = req.body as { role: string };
 
     const validRoles = ['doctor', 'diagnostic', 'tele_reporter', 'admin', 'superadmin'];
@@ -51,8 +44,8 @@ router.put('/users/:id/role', ...adminOnly, async (req, res) => {
     }
 
     const user = await prisma.user.update({
-      where: { id },
-      data: { role },
+      where:  { id },
+      data:   { role },
       select: { id: true, email: true, role: true, isActive: true },
     });
 
@@ -74,8 +67,8 @@ router.put('/users/:id/status', ...adminOnly, async (req, res) => {
     }
 
     const user = await prisma.user.update({
-      where: { id },
-      data: { isActive },
+      where:  { id },
+      data:   { isActive },
       select: { id: true, email: true, role: true, isActive: true },
     });
 
@@ -87,81 +80,71 @@ router.put('/users/:id/status', ...adminOnly, async (req, res) => {
 });
 
 // GET /admin/overview — name, patient count, and report count for all doctors and diagnostic centers.
-// Doctors:             reportCount = patients with hasReport = true
-// Diagnostic centers: reportCount = completed TeleCases they submitted
 router.get('/overview', ...adminOnly, async (_req, res) => {
   try {
     const users = await prisma.user.findMany({
-      where: { role: { in: ['doctor', 'diagnostic'] } },
-      select: {
-        id:       true,
-        fullName: true,
-        email:    true,
-        role:     true,
-        hospital: true,
-        patients: {
-          select: { hasReport: true },
-        },
-      },
+      where:   { role: { in: ['doctor', 'diagnostic'] } },
+      select:  { id: true, fullName: true, email: true, role: true, hospital: true, supabaseUid: true, createdAt: true },
       orderBy: { createdAt: 'asc' },
     });
 
-    // For diagnostic centers, also fetch their completed TeleCase count
-    const diagnosticIds = users
-      .filter((u) => u.role === 'diagnostic')
-      .map((u) => u.id);
+    const userIds    = users.map((u) => u.id);
+    const supabaseUids = users.map((u) => u.supabaseUid);
 
+    // Patient counts per user
+    const patientCounts = await prisma.patient.groupBy({
+      by:    ['userId'],
+      where: { userId: { in: userIds } },
+      _count: { id: true },
+    });
+    const patientCountMap = new Map(patientCounts.map((r) => [r.userId, r._count.id]));
+
+    // Report counts for doctors (patients with hasReport = true)
+    const reportCounts = await prisma.patient.groupBy({
+      by:    ['userId'],
+      where: { userId: { in: userIds }, hasReport: true },
+      _count: { id: true },
+    });
+    const reportCountMap = new Map(reportCounts.map((r) => [r.userId, r._count.id]));
+
+    // Completed TeleCase counts for diagnostic centers
+    const diagnosticIds  = users.filter((u) => u.role === 'diagnostic').map((u) => u.id);
     const teleCaseCounts = diagnosticIds.length
       ? await prisma.teleCase.groupBy({
-          by:     ['submittedBy'],
-          where:  { submittedBy: { in: diagnosticIds }, status: 'completed' },
+          by:    ['submittedBy'],
+          where: { submittedBy: { in: diagnosticIds }, status: 'completed' },
           _count: { id: true },
         })
-      : [];
+      : ([] as { submittedBy: string; _count: { id: number } }[]);
+    const teleCountMap = new Map(teleCaseCounts.map((r) => [r.submittedBy, r._count.id]));
 
-    const teleCountMap = new Map(
-      teleCaseCounts.map((r) => [r.submittedBy, r._count.id])
-    );
+    // Fetch profiles from Postgres (replaces Firestore doctor_profiles collection)
+    const profileRows = await (prisma as any).doctorProfile.findMany({
+      where: { uid: { in: supabaseUids } },
+    });
+    const profileMap = new Map(profileRows.map((p: any) => [p.uid, p]));
 
-    // Fetch Firestore profiles for all users in parallel
-    const db = getFirestore();
-    const profiles = await Promise.all(
-      users.map(async (u) => {
-        try {
-          // Find the firebaseUid for this user
-          const fullUser = await prisma.user.findUnique({
-            where: { id: u.id },
-            select: { firebaseUid: true, createdAt: true },
-          });
-          if (!fullUser) return null;
-          const doc = await db.collection('doctor_profiles').doc(fullUser.firebaseUid).get();
-          return doc.exists ? { ...doc.data(), createdAt: fullUser.createdAt } : { createdAt: fullUser.createdAt };
-        } catch {
-          return null;
-        }
-      })
-    );
-
-    const rows = users.map((u, i) => {
-      const patientCount = u.patients.length;
+    const rows = users.map((u) => {
+      const profile      = profileMap.get(u.supabaseUid) as Record<string, any> | undefined;
+      const patientCount = patientCountMap.get(u.id) ?? 0;
       const reportCount  = u.role === 'diagnostic'
         ? (teleCountMap.get(u.id) ?? 0)
-        : u.patients.filter((p) => p.hasReport).length;
-      const profile = profiles[i] as Record<string, any> | null;
+        : (reportCountMap.get(u.id) ?? 0);
 
       return {
-        name:          profile?.['fullName']      ?? u.fullName ?? u.email,
-        email:         u.email,
-        role:          u.role,
-        phone:         profile?.['phone']         ?? null,
-        hospital:      profile?.['hospital']      ?? u.hospital ?? null,
-        licenseNumber: profile?.['licenseNumber'] ?? null,
-        city:          profile?.['city']          ?? null,
-        state:         profile?.['state']         ?? null,
-        accountType:   profile?.['accountType']   ?? u.role,
+        name:               profile?.['fullName']           ?? u.fullName ?? u.email,
+        email:              u.email,
+        role:               u.role,
+        phone:              profile?.['phone']              ?? null,
+        hospital:           profile?.['hospital']           ?? u.hospital ?? null,
+        licenseNumber:      profile?.['licenseNumber']      ?? null,
+        colposcopeSerialNo: profile?.['colposcopeSerialNo'] ?? null,
+        city:               profile?.['city']               ?? null,
+        state:              profile?.['state']              ?? null,
+        accountType:        profile?.['accountType']        ?? u.role,
         patientCount,
         reportCount,
-        joinedAt:      profile?.['createdAt']     ?? null,
+        joinedAt:           profile?.['createdAt']          ?? u.createdAt ?? null,
       };
     });
 

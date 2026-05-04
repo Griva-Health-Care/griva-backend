@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/config.dart';
 import '../repositories/repository_factory.dart';
@@ -15,41 +15,42 @@ import 'sync_engine.dart';
 import 'user_service.dart' as app_user;
 
 class AuthService {
-  final fb.FirebaseAuth? _firebase;
+  final SupabaseClient _supabase = Supabase.instance.client;
   final app_user.UserService _userService = app_user.UserService();
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
-  static const String _restBase =
-      'https://identitytoolkit.googleapis.com/v1/accounts';
   static const String _sessionEmailKey = 'local_session_email';
-
-  AuthService()
-      : _firebase = Platform.isLinux ? null : fb.FirebaseAuth.instance;
 
   // ================= LOGIN =================
   Future<bool> login(String email, String password) async {
     debugPrint('[AUTH] Login attempt: $email');
     try {
-      final user = await _signIn(email, password);
-      await _upsertLocalUser(
-        email: email,
+      final response = await _supabase.auth.signInWithPassword(
+        email:    email.trim(),
         password: password,
-        fullName: user.displayName ?? email.split('@').first,
-        role: 'doctor',
+      );
+      if (response.user == null) throw Exception('Authentication failed');
+
+      await _upsertLocalUser(
+        email:    email,
+        password: password,
+        fullName: response.user!.userMetadata?['full_name'] as String? ??
+                  email.split('@').first,
+        role:     'doctor',
         isActive: true,
       );
       await _secureStorage.write(
           key: _sessionEmailKey, value: email.trim().toLowerCase());
       await _postLoginInit();
-      debugPrint('[AUTH] Login successful (online)');
+      debugPrint('[AUTH] Login successful');
       return true;
-    } on fb.FirebaseAuthException catch (e) {
-      debugPrint('[AUTH] Firebase error: ${e.code}');
-      // Network failure → attempt offline validation against local credentials.
-      if (e.code == 'network-request-failed') {
+    } on AuthException catch (e) {
+      debugPrint('[AUTH] Supabase error: ${e.message}');
+      if (e.message.toLowerCase().contains('network') ||
+          e.message.toLowerCase().contains('connection')) {
         return await _offlineLogin(email, password);
       }
-      throw Exception(_sdkErrorMessage(e.code));
+      throw Exception(_authErrorMessage(e.message));
     } catch (e, st) {
       debugPrint('[AUTH] Login failed: $e\n$st');
       rethrow;
@@ -57,13 +58,11 @@ class AuthService {
   }
 
   // Validates credentials against the locally stored bcrypt hash.
-  // Only reachable when Firebase is unreachable (no internet / on hotspot).
   Future<bool> _offlineLogin(String email, String password) async {
     debugPrint('[AUTH] No internet — trying offline login for $email');
     final localUser =
         await _userService.authenticateUser(email.trim().toLowerCase(), password);
     if (localUser == null) {
-      debugPrint('[AUTH] Offline login failed — credentials not recognised');
       throw Exception(
         'No internet connection. Please connect to the internet at least once to activate offline login.',
       );
@@ -76,95 +75,104 @@ class AuthService {
   }
 
   // ================= REGISTER =================
+  String? _pendingHospital;
+  String? _pendingRole;
+
   Future<bool> register({
     required String email,
     required String name,
     required String password,
+    String? hospital,
+    String? role,
   }) async {
-    fb.User? sdkUser;
     try {
       debugPrint('[AUTH] Register: $email');
-      sdkUser = await _createAccount(email, password, name);
+      _pendingHospital = hospital;
+      _pendingRole     = role;
+
+      final response = await _supabase.auth.signUp(
+        email:    email.trim(),
+        password: password,
+        data:     {'full_name': name},
+      );
+      if (response.user == null) throw Exception('Registration failed');
+
       await _upsertLocalUser(
-        email: email,
+        email:    email,
         password: password,
         fullName: name,
-        role: 'doctor',
+        role:     role ?? 'doctor',
         isActive: true,
       );
       debugPrint('[AUTH] Registration successful');
       return true;
-    } on fb.FirebaseAuthException catch (e) {
-      debugPrint('[AUTH] Firebase error: ${e.code}');
-      await _rollbackFirebaseUser(sdkUser);
-      throw Exception(_sdkErrorMessage(e.code));
+    } on AuthException catch (e) {
+      debugPrint('[AUTH] Supabase error: ${e.message}');
+      _pendingHospital = null;
+      _pendingRole     = null;
+      throw Exception(_authErrorMessage(e.message));
     } catch (e) {
       debugPrint('[AUTH] Registration failed: $e');
-      await _rollbackFirebaseUser(sdkUser);
+      _pendingHospital = null;
+      _pendingRole     = null;
       rethrow;
     }
   }
 
   // ================= GOOGLE SIGN-IN =================
-  /// Signs in with Google, then checks if the user's Firestore profile is
-  /// complete. Returns a [GoogleSignInResult] indicating whether to navigate
-  /// to home directly or to the profile-completion screen first.
   Future<GoogleSignInResult> signInWithGoogle() async {
+    if (Platform.isLinux) throw Exception('Google sign-in not supported on Linux');
+
     final googleUser = await GoogleSignIn().signIn();
-    if (googleUser == null) {
-      // User cancelled the picker
-      return GoogleSignInResult.cancelled();
-    }
+    if (googleUser == null) return GoogleSignInResult.cancelled();
 
     final googleAuth = await googleUser.authentication;
-    final credential = fb.GoogleAuthProvider.credential(
+    if (googleAuth.idToken == null) throw Exception('Failed to get Google ID token');
+
+    final response = await _supabase.auth.signInWithIdToken(
+      provider:    OAuthProvider.google,
+      idToken:     googleAuth.idToken!,
       accessToken: googleAuth.accessToken,
-      idToken:     googleAuth.idToken,
     );
 
-    final userCred = await _firebase!.signInWithCredential(credential);
-    final fbUser   = userCred.user;
-    if (fbUser == null) throw Exception('Google sign-in failed');
+    final user = response.user;
+    if (user == null) throw Exception('Google sign-in failed');
 
-    // Upsert the local SQLite user so offline login works after Google auth.
     await _upsertLocalUser(
-      email:    fbUser.email    ?? '',
-      password: fbUser.uid,     // uid used as password placeholder for offline bcrypt
-      fullName: fbUser.displayName ?? googleUser.displayName ?? '',
+      email:    user.email    ?? '',
+      password: user.id,
+      fullName: user.userMetadata?['full_name'] as String? ??
+                googleUser.displayName ?? '',
       role:     'doctor',
       isActive: true,
     );
 
     await _secureStorage.write(
       key:   _sessionEmailKey,
-      value: (fbUser.email ?? '').trim().toLowerCase(),
+      value: (user.email ?? '').trim().toLowerCase(),
     );
 
     await _postLoginInit();
 
-    // Check if the user has already completed their Firestore profile.
     final profileComplete =
-        await ProfileService.instance.isProfileComplete(fbUser.uid);
+        await ProfileService.instance.isProfileComplete(user.id);
 
     return GoogleSignInResult(
-      email:         fbUser.email         ?? '',
-      displayName:   fbUser.displayName   ?? '',
-      needsProfile:  !profileComplete,
+      email:        user.email         ?? '',
+      displayName:  user.userMetadata?['full_name'] as String? ??
+                    googleUser.displayName ?? '',
+      needsProfile: !profileComplete,
     );
   }
 
   // ================= FORGOT PASSWORD =================
   Future<void> sendPasswordResetEmail(String email) async {
-    if (Platform.isLinux) {
-      await _restSendPasswordReset(email.trim());
-    } else {
-      await _firebase!.sendPasswordResetEmail(email: email.trim());
-    }
+    await _supabase.auth.resetPasswordForEmail(email.trim());
   }
 
   // ================= LOGOUT =================
   Future<void> logout() async {
-    if (_firebase != null) await _firebase.signOut();
+    await _supabase.auth.signOut();
     await _secureStorage.delete(key: _sessionEmailKey);
     await SessionService.instance.clear();
     SyncEngine.instance.stop();
@@ -174,30 +182,20 @@ class AuthService {
   }
 
   // ================= AUTO LOGIN =================
-  // Returns the user's email if a valid session exists, null otherwise.
-  // Never makes a network call — the session is fully offline-capable.
   Future<String?> tryAutoLogin() async {
     try {
-      if (Platform.isLinux) return null;
-
-      // 1. Firebase caches the auth state on-device. currentUser is non-null
-      //    whenever the user has previously signed in, even with no internet.
-      //    We deliberately avoid getIdToken(true) here — that forces a network
-      //    round-trip and breaks offline use on the GRIVAVISION hotspot.
-      final firebaseUser = _firebase!.currentUser;
-      if (firebaseUser != null) {
-        final email = firebaseUser.email ?? '';
+      final session = _supabase.auth.currentSession;
+      if (session != null && !_isTokenExpired(session)) {
+        final email = session.user.email ?? '';
         if (email.isNotEmpty) {
           await _secureStorage.write(key: _sessionEmailKey, value: email);
         }
         await _postLoginInit();
-        debugPrint('[AUTH] Auto-login: Firebase session valid for $email');
+        debugPrint('[AUTH] Auto-login: Supabase session valid for $email');
         return email.isNotEmpty ? email : null;
       }
 
-      // 2. Fallback: Firebase session was cleared (e.g., app data wiped) but
-      //    we still have a local session marker AND a local DB user record.
-      //    This keeps the user logged in even when Firebase state is gone.
+      // Fallback: local session marker + local DB user
       final savedEmail = await _secureStorage.read(key: _sessionEmailKey);
       if (savedEmail != null && savedEmail.isNotEmpty) {
         final localUser = await _userService.getUserByEmail(savedEmail);
@@ -215,156 +213,42 @@ class AuthService {
     }
   }
 
-  // ================= FIREBASE — SDK (non-Linux) =================
-  Future<fb.User> _signIn(String email, String password) async {
-    if (Platform.isLinux) {
-      await _restSignIn(email, password);
-      throw Exception('Linux login does not return a User object');
-    }
-    final credential = await _firebase!.signInWithEmailAndPassword(
-      email: email,
-      password: password,
-    );
-    final user = credential.user;
-    if (user == null) throw Exception('Firebase user null after sign-in');
-    return user;
-  }
-
-  Future<fb.User> _createAccount(
-      String email, String password, String name) async {
-    if (Platform.isLinux) {
-      await _restSignUp(email, password);
-      throw Exception('Linux registration does not return a User object');
-    }
-    final credential = await _firebase!.createUserWithEmailAndPassword(
-      email: email,
-      password: password,
-    );
-    final user = credential.user;
-    if (user == null) throw Exception('Firebase user creation failed');
-    try {
-      await user.updateDisplayName(name);
-      await user.sendEmailVerification();
-    } catch (_) {}
-    return user;
-  }
-
-  Future<void> _rollbackFirebaseUser(fb.User? user) async {
-    if (user == null) return;
-    try {
-      await user.delete();
-    } catch (_) {}
-  }
-
-  // ================= FIREBASE — REST API (Linux) =================
-  Future<void> _restSignIn(String email, String password) async {
-    try {
-      await Dio().post(
-        '$_restBase:signInWithPassword?key=${Config.firebaseWebApiKey}',
-        data: {'email': email, 'password': password, 'returnSecureToken': true},
-      );
-    } on DioException catch (e) {
-      throw Exception(_restErrorMessage(e));
-    }
-  }
-
-  Future<void> _restSignUp(String email, String password) async {
-    try {
-      await Dio().post(
-        '$_restBase:signUp?key=${Config.firebaseWebApiKey}',
-        data: {'email': email, 'password': password, 'returnSecureToken': true},
-      );
-    } on DioException catch (e) {
-      throw Exception(_restErrorMessage(e));
-    }
-  }
-
-  Future<void> _restSendPasswordReset(String email) async {
-    try {
-      await Dio().post(
-        '$_restBase:sendOobCode?key=${Config.firebaseWebApiKey}',
-        data: {'requestType': 'PASSWORD_RESET', 'email': email},
-      );
-    } on DioException catch (e) {
-      throw Exception(_restErrorMessage(e));
-    }
+  bool _isTokenExpired(Session session) {
+    final expiry = session.expiresAt;
+    if (expiry == null) return false;
+    return DateTime.fromMillisecondsSinceEpoch(expiry * 1000)
+        .isBefore(DateTime.now());
   }
 
   // ================= ERROR MESSAGES =================
-  String _sdkErrorMessage(String code) {
-    switch (code) {
-      case 'wrong-password':
-      case 'invalid-credential':
-        return 'Incorrect password. Please try again.';
-      case 'user-not-found':
-        return 'No account found with this email.';
-      case 'email-already-in-use':
-        return 'This email is already registered. Please sign in instead.';
-      case 'weak-password':
-        return 'Password is too weak. Use at least 8 characters.';
-      case 'invalid-email':
-        return 'Invalid email address.';
-      case 'too-many-requests':
-        return 'Too many failed attempts. Please try again later.';
-      case 'user-disabled':
-        return 'This account has been disabled. Contact support.';
-      case 'network-request-failed':
-        return 'Network error. Check your connection and try again.';
-      default:
-        return 'Authentication failed. Please try again.';
-    }
-  }
-
-  String _restErrorMessage(DioException e) {
-    final msg =
-        e.response?.data?['error']?['message'] as String? ?? '';
-    if (msg.contains('EMAIL_NOT_FOUND') ||
-        msg.contains('INVALID_LOGIN_CREDENTIALS')) {
-      return 'No account found with this email.';
-    }
-    if (msg.contains('INVALID_PASSWORD')) {
-      return 'Incorrect password. Please try again.';
-    }
-    if (msg.contains('EMAIL_EXISTS')) {
-      return 'This email is already registered. Please sign in instead.';
-    }
-    if (msg.contains('WEAK_PASSWORD')) {
-      return 'Password is too weak. Use at least 8 characters.';
-    }
-    if (msg.contains('TOO_MANY_ATTEMPTS_TRY_LATER')) {
-      return 'Too many failed attempts. Please try again later.';
-    }
-    if (msg.contains('USER_DISABLED')) {
-      return 'This account has been disabled. Contact support.';
-    }
-    if (e.type == DioExceptionType.connectionError ||
-        e.type == DioExceptionType.connectionTimeout) {
-      return 'Network error. Check your connection and try again.';
-    }
+  String _authErrorMessage(String message) {
+    final m = message.toLowerCase();
+    if (m.contains('invalid login') || m.contains('invalid credentials') ||
+        m.contains('wrong password'))      return 'Incorrect email or password.';
+    if (m.contains('user not found') ||
+        m.contains('no user found'))       return 'No account found with this email.';
+    if (m.contains('already registered') ||
+        m.contains('already exists'))      return 'This email is already registered. Please sign in instead.';
+    if (m.contains('weak password') ||
+        m.contains('at least 6'))          return 'Password is too weak. Use at least 8 characters.';
+    if (m.contains('invalid email'))       return 'Invalid email address.';
+    if (m.contains('too many'))            return 'Too many failed attempts. Please try again later.';
+    if (m.contains('disabled'))            return 'This account has been disabled. Contact support.';
     return 'Authentication failed. Please try again.';
   }
 
   // ================= POST-LOGIN INIT =================
-  // Called after every successful login (online, offline, and auto-login).
-  // Order matters: session first (provides doctorId), then cloud config
-  // (uses doctorId to fetch sync flag), then factory (uses sync flag).
   Future<void> _postLoginInit() async {
     await SessionService.instance.initialize();
     final doctorId = SessionService.instance.currentDoctorId;
 
-    // Sync profile to the Node backend (fire-and-forget — must not block login
-    // or fail when the device is offline / backend is unreachable).
     _registerWithBackend().catchError(
       (e) => debugPrint('[AUTH] Backend sync skipped: $e'),
     );
 
-    // Fetch cloud config; gracefully no-ops when offline.
     final config = await CloudConfigService.instance.fetch(doctorId);
-
-    // Tell the factory which implementation to use for this session.
     RepositoryFactory.configure(cloudSyncEnabled: config.cloudSyncEnabled);
 
-    // Start the sync engine only when cloud sync is active.
     if (config.cloudSyncEnabled) {
       SyncEngine.instance.start();
     }
@@ -374,23 +258,27 @@ class AuthService {
   }
 
   // ================= BACKEND SYNC =================
-  // Registers / syncs the current Firebase user with the Node backend so it
-  // appears in PostgreSQL.  Never throws — callers use catchError.
   Future<void> _registerWithBackend() async {
-    if (Platform.isLinux) return; // Firebase SDK not available on Linux
-    final firebaseUser = _firebase?.currentUser;
-    if (firebaseUser == null) return;
+    final session = _supabase.auth.currentSession;
+    if (session == null) return;
 
-    final token = await firebaseUser.getIdToken();
+    final hospital = _pendingHospital;
+    final role     = _pendingRole;
+    _pendingHospital = null;
+    _pendingRole     = null;
+
     await Dio().post(
       '${Config.piBaseUrl}/users/register',
       data: {
-        'fullName': firebaseUser.displayName,
-        'role': 'doctor',
+        'fullName': session.user.userMetadata?['full_name'],
+        'role':     role ?? 'doctor',
+        if (hospital != null && hospital.isNotEmpty) 'hospital': hospital,
       },
-      options: Options(headers: {'Authorization': 'Bearer $token'}),
+      options: Options(
+        headers: {'Authorization': 'Bearer ${session.accessToken}'},
+      ),
     );
-    debugPrint('[AUTH] Backend registration synced for ${firebaseUser.email}');
+    debugPrint('[AUTH] Backend registration synced for ${session.user.email}');
   }
 
   // ================= LOCAL DB =================
@@ -406,19 +294,13 @@ class AuthService {
 
     final existing = await _userService.getUserByEmail(normalizedEmail);
     if (existing != null) {
-      // Never overwrite the stored bcrypt hash with a raw password.
-      // Profile fields (name, role, active) are kept in sync with Firebase;
-      // the password column is left untouched — it was hashed on first create.
-      if (existing.id == null) {
-        debugPrint('[AUTH] WARNING: existing user has null id — skipping update');
-        return;
-      }
+      if (existing.id == null) return;
       await _userService.updateUser(
         existing.id!,
         existing.copyWith(
           fullName: fullName,
-          email: normalizedEmail,
-          role: role,
+          email:    normalizedEmail,
+          role:     role,
           isActive: isActive,
           updatedAt: now,
         ),
@@ -426,18 +308,17 @@ class AuthService {
       return;
     }
 
-    // First time: createUser hashes the password via PasswordService.
     await _userService.createUser(
       app_user.User(
-        fullName: fullName,
-        email: normalizedEmail,
-        password: password,
-        medicalLicense: 'N/A',
-        hospital: 'N/A',
-        role: role,
-        isActive: isActive,
-        createdAt: now,
-        updatedAt: now,
+        fullName:        fullName,
+        email:           normalizedEmail,
+        password:        password,
+        medicalLicense:  'N/A',
+        hospital:        'N/A',
+        role:            role,
+        isActive:        isActive,
+        createdAt:       now,
+        updatedAt:       now,
       ),
     );
   }
@@ -447,12 +328,12 @@ class GoogleSignInResult {
   final bool   cancelled;
   final String email;
   final String displayName;
-  final bool   needsProfile; // true → send user to CompleteProfileScreen
+  final bool   needsProfile;
 
   const GoogleSignInResult({
-    this.cancelled   = false,
-    this.email       = '',
-    this.displayName = '',
+    this.cancelled    = false,
+    this.email        = '',
+    this.displayName  = '',
     this.needsProfile = false,
   });
 

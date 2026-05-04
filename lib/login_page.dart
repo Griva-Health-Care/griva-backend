@@ -96,9 +96,11 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
       final name  = _signupNameController.text.trim();
 
       final success = await _authService.register(
-        email: email,
-        name: name,
+        email:    email,
+        name:     name,
         password: _signupPasswordController.text,
+        hospital: _signupHospitalController.text.trim(),
+        role:     _signupAccountType == 'diagnostic_center' ? 'diagnostic' : 'doctor',
       );
 
       if (!mounted) return;

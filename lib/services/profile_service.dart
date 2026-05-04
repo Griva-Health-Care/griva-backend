@@ -1,26 +1,25 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-/// Manages the mandatory doctor/diagnostic-center profile stored in Firestore.
+/// Manages the mandatory doctor/diagnostic-center profile stored in Supabase
+/// Postgres.
 ///
-/// Firestore path: `doctor_profiles/{uid}`
+/// Table: node_app.doctor_profiles (uid PK = Supabase user UUID)
 ///
-/// This is separate from `doctor_config` (which is admin-managed for
-/// cloudSyncEnabled / role / credits). `doctor_profiles` is user-submitted
-/// identity data collected at sign-up or first Google sign-in.
+/// This replaces the previous Firestore `doctor_profiles/{uid}` collection.
 class ProfileService {
   ProfileService._();
   static final ProfileService instance = ProfileService._();
 
-  static const _collection = 'doctor_profiles';
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  SupabaseClient get _db => Supabase.instance.client;
 
-  /// Save (or overwrite) the profile for [uid].
+  /// Save (or merge) the profile for [uid].
   Future<void> saveProfile(String uid, DoctorProfile profile) async {
-    await _db.collection(_collection).doc(uid).set(
-      profile.toMap()..['updatedAt'] = FieldValue.serverTimestamp(),
-      SetOptions(merge: true),
-    );
+    final data = profile.toMap();
+    data['uid']       = uid;
+    data['updatedAt'] = DateTime.now().toIso8601String();
+
+    await _db.from('doctor_profiles').upsert(data, onConflict: 'uid');
     debugPrint('[PROFILE] Saved profile for $uid');
   }
 
@@ -28,9 +27,13 @@ class ProfileService {
   /// or null if the user still needs to complete their profile.
   Future<DoctorProfile?> getProfile(String uid) async {
     try {
-      final doc = await _db.collection(_collection).doc(uid).get();
-      if (!doc.exists || doc.data() == null) return null;
-      final profile = DoctorProfile.fromMap(doc.data()!);
+      final row = await _db
+          .from('doctor_profiles')
+          .select()
+          .eq('uid', uid)
+          .maybeSingle();
+      if (row == null) return null;
+      final profile = DoctorProfile.fromMap(row);
       return profile.isComplete ? profile : null;
     } catch (e) {
       debugPrint('[PROFILE] Failed to fetch profile for $uid: $e');
@@ -46,13 +49,14 @@ class ProfileService {
 }
 
 class DoctorProfile {
-  final String  fullName;
-  final String  phone;
-  final String  hospital;        // hospital or clinic/diagnostic center name
-  final String  accountType;     // 'doctor' | 'diagnostic_center'
-  final String  licenseNumber;   // medical registration / license number
-  final String  city;
-  final String  state;
+  final String fullName;
+  final String phone;
+  final String hospital;
+  final String accountType;
+  final String licenseNumber;
+  final String city;
+  final String state;
+  final String colposcopeSerialNo;
 
   const DoctorProfile({
     required this.fullName,
@@ -62,6 +66,7 @@ class DoctorProfile {
     required this.licenseNumber,
     required this.city,
     required this.state,
+    this.colposcopeSerialNo = '',
   });
 
   bool get isComplete =>
@@ -74,23 +79,28 @@ class DoctorProfile {
       state.isNotEmpty;
 
   factory DoctorProfile.fromMap(Map<String, dynamic> map) => DoctorProfile(
-        fullName:      (map['fullName']      as String?) ?? '',
-        phone:         (map['phone']         as String?) ?? '',
-        hospital:      (map['hospital']      as String?) ?? '',
-        accountType:   (map['accountType']   as String?) ?? '',
-        licenseNumber: (map['licenseNumber'] as String?) ?? '',
-        city:          (map['city']          as String?) ?? '',
-        state:         (map['state']         as String?) ?? '',
+        fullName:           (map['fullName']           as String?) ??
+                            (map['full_name']          as String?) ?? '',
+        phone:              (map['phone']              as String?) ?? '',
+        hospital:           (map['hospital']           as String?) ?? '',
+        accountType:        (map['accountType']        as String?) ??
+                            (map['account_type']       as String?) ?? '',
+        licenseNumber:      (map['licenseNumber']      as String?) ??
+                            (map['license_number']     as String?) ?? '',
+        city:               (map['city']               as String?) ?? '',
+        state:              (map['state']              as String?) ?? '',
+        colposcopeSerialNo: (map['colposcopeSerialNo'] as String?) ??
+                            (map['colposcope_serial_no'] as String?) ?? '',
       );
 
   Map<String, dynamic> toMap() => {
-        'fullName':      fullName,
-        'phone':         phone,
-        'hospital':      hospital,
-        'accountType':   accountType,
-        'licenseNumber': licenseNumber,
-        'city':          city,
-        'state':         state,
-        'createdAt':     FieldValue.serverTimestamp(),
+        'fullName':           fullName,
+        'phone':              phone,
+        'hospital':           hospital,
+        'accountType':        accountType,
+        'licenseNumber':      licenseNumber,
+        'city':               city,
+        'state':              state,
+        'colposcopeSerialNo': colposcopeSerialNo,
       };
 }

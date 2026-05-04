@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -8,12 +9,17 @@ if (!connectionString) {
   process.exit(1);
 }
 
-// Render-hosted Postgres requires SSL. Append sslmode=require if not already present.
-const dbUrl = connectionString.includes('sslmode')
-  ? connectionString
-  : `${connectionString}${connectionString.includes('?') ? '&' : '?'}sslmode=require`;
+// Supabase uses its own CA that Node.js doesn't trust by default.
+// Strip sslmode from the URL so the Pool's ssl option takes full control.
+// rejectUnauthorized:false keeps the connection encrypted but skips cert chain
+// verification — this is Supabase's own recommendation for direct connections.
+const cleanUrl = connectionString.replace(/[?&]sslmode=[^&]*/g, '').replace(/[?&]uselibpqcompat=[^&]*/g, '');
+const pool = new Pool({
+  connectionString: cleanUrl,
+  ssl: { rejectUnauthorized: false },
+});
 
-const adapter = new PrismaPg({ connectionString: dbUrl });
+const adapter = new PrismaPg(pool);
 export const prisma = new PrismaClient({ adapter });
 
 export async function connectWithRetry(maxRetries = 3): Promise<void> {

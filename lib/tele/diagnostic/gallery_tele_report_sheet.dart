@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
 import '../../services/griva_api_service.dart';
 
 /// Bottom sheet launched from GalleryScreen.
@@ -74,6 +75,23 @@ class _GalleryTeleReportSheetState extends State<GalleryTeleReportSheet> {
     }
   }
 
+  // ── Compression ───────────────────────────────────────────────────────────
+
+  /// Compress a JPEG image to max 1280px on the long edge, quality 75.
+  /// Falls back to original bytes if decoding fails.
+  Uint8List _compressImage(Uint8List bytes) {
+    try {
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) return bytes;
+      final resized = decoded.width > decoded.height
+          ? (decoded.width > 1280 ? img.copyResize(decoded, width: 1280) : decoded)
+          : (decoded.height > 1280 ? img.copyResize(decoded, height: 1280) : decoded);
+      return Uint8List.fromList(img.encodeJpg(resized, quality: 75));
+    } catch (_) {
+      return bytes;
+    }
+  }
+
   // ── Submission ────────────────────────────────────────────────────────────
 
   Future<void> _submit() async {
@@ -87,30 +105,38 @@ class _GalleryTeleReportSheetState extends State<GalleryTeleReportSheet> {
       _submitting    = true;
       _submitError   = null;
       _uploadedCount = 0;
-      _statusLabel   = 'Preparing upload…';
+      _statusLabel   = 'Compressing images…';
     });
 
     try {
-      final ts       = DateTime.now().millisecondsSinceEpoch;
-      final uploaded = <GrivaFile>[];
+      final ts = DateTime.now().millisecondsSinceEpoch;
 
-      // Upload images to backend
-      for (var i = 0; i < widget.selectedImages.length; i++) {
-        setState(() => _statusLabel = 'Uploading image ${i + 1} of ${widget.selectedImages.length}…');
-        final file = await GrivaApiService.instance.uploadFile(
-            widget.selectedImages[i], 'img_${ts}_$i.jpg', 'image/jpeg');
-        uploaded.add(file);
-        setState(() => _uploadedCount = i + 1);
-      }
+      // Compress all images first (CPU-bound, do sequentially to avoid jank)
+      final compressed = widget.selectedImages
+          .map((b) => _compressImage(b))
+          .toList();
 
-      // Upload videos to backend
-      for (var i = 0; i < widget.selectedVideos.length; i++) {
-        setState(() => _statusLabel = 'Uploading video ${i + 1} of ${widget.selectedVideos.length}…');
-        final file = await GrivaApiService.instance.uploadFile(
-            widget.selectedVideos[i], 'vid_${ts}_$i.mp4', 'video/mp4');
-        uploaded.add(file);
-        setState(() => _uploadedCount = widget.selectedImages.length + i + 1);
-      }
+      setState(() => _statusLabel = 'Uploading $totalFiles file${totalFiles > 1 ? 's' : ''} in parallel…');
+
+      // Upload all images + videos in parallel
+      final imageUploads = Future.wait(
+        List.generate(compressed.length, (i) =>
+          GrivaApiService.instance
+              .uploadFile(compressed[i], 'img_${ts}_$i.jpg', 'image/jpeg')
+              .then((f) { setState(() => _uploadedCount++); return f; }),
+        ),
+      );
+
+      final videoUploads = Future.wait(
+        List.generate(widget.selectedVideos.length, (i) =>
+          GrivaApiService.instance
+              .uploadFile(widget.selectedVideos[i], 'vid_${ts}_$i.mp4', 'video/mp4')
+              .then((f) { setState(() => _uploadedCount++); return f; }),
+        ),
+      );
+
+      final results = await Future.wait([imageUploads, videoUploads]);
+      final uploaded = [...results[0], ...results[1]];
 
       setState(() => _statusLabel = 'Submitting case to backend…');
 

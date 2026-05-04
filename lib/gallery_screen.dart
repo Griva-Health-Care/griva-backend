@@ -14,6 +14,8 @@ import 'services/video_service.dart';
 import 'image_edit_screen.dart';
 import 'screens/patient_selection_screen.dart';
 import 'screens/image_comparison_screen.dart';
+import 'diagnosis_page.dart';
+import 'services/medical_report_service.dart';
 import 'custom_app_bar.dart';
 import 'custom_drawer.dart';
 import 'config/app_config.dart';
@@ -28,6 +30,7 @@ class GalleryScreen extends StatefulWidget {
   final List<Map<String, dynamic>>? unlinkedVideos; // Cached videos with metadata
   final bool pickerMode; // When true, return selected images to caller
   final String? pickerActionLabel;
+  final Patient? initialPatient; // Pre-linked patient — skips the "link to patient" dialog
 
   const GalleryScreen({
     super.key,
@@ -39,6 +42,7 @@ class GalleryScreen extends StatefulWidget {
     this.unlinkedVideos,
     this.pickerMode = false,
     this.pickerActionLabel,
+    this.initialPatient,
   });
 
   @override
@@ -66,6 +70,20 @@ class _GalleryScreenState extends State<GalleryScreen> {
     _unlinkedImages = List.from(widget.unlinkedImages ?? []);
     _unlinkedVideos = List.from(widget.unlinkedVideos ?? []);
     print('Gallery initialized with ${_images.length} images and ${_videos.length} videos');
+    if (widget.initialPatient != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _autoLinkToPatient(widget.initialPatient!);
+      });
+    }
+  }
+
+  Future<void> _autoLinkToPatient(Patient patient) async {
+    if (_unlinkedImages.isNotEmpty) {
+      await _saveUnlinkedImagesToPatient(patient);
+    }
+    if (_unlinkedVideos.isNotEmpty) {
+      await _saveUnlinkedVideosToPatient(patient);
+    }
   }
 
   @override
@@ -243,10 +261,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
     ).then((editedBytes) {
       if (editedBytes == null) return;
       setState(() {
-        _images[index] = editedBytes;
+        _images.add(editedBytes);
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Image updated')),
+        const SnackBar(content: Text('Edited copy added to gallery')),
       );
     });
   }
@@ -275,27 +293,53 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   void _proceedToDiagnosis() {
     if (_selectedIndices.isEmpty) return;
-    
+
     final selectedImages = _selectedIndices.map((index) => _images[index]).toList();
     if (widget.pickerMode) {
       Navigator.pop(context, selectedImages);
       return;
     }
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PatientSelectionScreen(
-          images: selectedImages,
+    if (widget.initialPatient != null) {
+      // Patient already known — go straight to diagnosis without re-asking
+      Navigator.push<String?>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DiagnosisPage(
+            patient: widget.initialPatient!,
+            images: selectedImages,
+          ),
         ),
-      ),
-    ).then((_) {
-      // Exit selection mode when returning from patient selection
-      setState(() {
-        _isSelectionMode = false;
-        _selectedIndices.clear();
+      ).then((filePath) {
+        if (filePath != null && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Report generated successfully!'),
+              action: SnackBarAction(
+                label: 'Open',
+                onPressed: () => MedicalReportService.openReport(filePath),
+              ),
+            ),
+          );
+        }
+        setState(() {
+          _isSelectionMode = false;
+          _selectedIndices.clear();
+        });
       });
-    });
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => PatientSelectionScreen(images: selectedImages),
+        ),
+      ).then((_) {
+        setState(() {
+          _isSelectionMode = false;
+          _selectedIndices.clear();
+        });
+      });
+    }
   }
 
   // Open tele report bottom sheet with given images/videos

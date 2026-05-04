@@ -1,13 +1,112 @@
+import 'dart:async';
 import 'dart:typed_data';
-import 'dart:io';
-import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:crop_your_image/crop_your_image.dart';
 import 'package:image/image.dart' as img;
-import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'config/app_config.dart';
+
+// Passed to the isolate — all fields must be sendable (primitives + Uint8List)
+class _EditParams {
+  final Uint8List imageBytes;
+  final double brightness, contrast, saturation, hue;
+  final double rotation;
+  final bool flipH, flipV;
+  final double sharpness, blur;
+  final bool grayscale, sepia;
+  final int previewSize; // 0 = full resolution
+
+  const _EditParams({
+    required this.imageBytes,
+    required this.brightness,
+    required this.contrast,
+    required this.saturation,
+    required this.hue,
+    required this.rotation,
+    required this.flipH,
+    required this.flipV,
+    required this.sharpness,
+    required this.blur,
+    required this.grayscale,
+    required this.sepia,
+    this.previewSize = 0,
+  });
+}
+
+Uint8List _downscaleIsolate(Uint8List bytes) {
+  final src = img.decodeImage(bytes);
+  if (src == null) return bytes;
+  final long = src.width > src.height ? src.width : src.height;
+  if (long <= 512) return bytes;
+  final scaled = src.width > src.height
+      ? img.copyResize(src, width: 512)
+      : img.copyResize(src, height: 512);
+  return Uint8List.fromList(img.encodeJpg(scaled, quality: 85));
+}
+
+Uint8List _processImageIsolate(_EditParams p) {
+  img.Image working = img.decodeImage(p.imageBytes) ?? img.Image(width: 1, height: 1);
+
+  if (p.flipH) working = img.flipHorizontal(working);
+  if (p.flipV) working = img.flipVertical(working);
+  if (p.rotation != 0) working = img.copyRotate(working, angle: p.rotation.toInt());
+
+  if (p.brightness != 0.0 || p.contrast != 1.0 || p.saturation != 1.0) {
+    working = img.adjustColor(
+      working,
+      brightness: p.brightness.clamp(-1, 1),
+      contrast: p.contrast.clamp(0.1, 3.0),
+      saturation: p.saturation.clamp(0, 3),
+    );
+  }
+
+  if (p.hue != 0.0) {
+    final hueShift = p.hue;
+    for (final pixel in working) {
+      final r = pixel.r.toDouble();
+      final g = pixel.g.toDouble();
+      final b = pixel.b.toDouble();
+      final max = r > g ? (r > b ? r : b) : (g > b ? g : b);
+      final min = r < g ? (r < b ? r : b) : (g < b ? g : b);
+      final diff = max - min;
+      if (diff == 0) continue;
+      double h = 0;
+      if (max == r) h = ((g - b) / diff) % 6;
+      else if (max == g) h = (b - r) / diff + 2;
+      else h = (r - g) / diff + 4;
+      h = (h * 60 + hueShift) % 360;
+      if (h < 0) h += 360;
+      final s = diff / max;
+      final v = max / 255.0;
+      final c = v * s;
+      final x = c * (1 - ((h / 60) % 2 - 1).abs());
+      final m = v - c;
+      double nr, ng, nb;
+      if (h < 60) { nr = c; ng = x; nb = 0; }
+      else if (h < 120) { nr = x; ng = c; nb = 0; }
+      else if (h < 180) { nr = 0; ng = c; nb = x; }
+      else if (h < 240) { nr = 0; ng = x; nb = c; }
+      else if (h < 300) { nr = x; ng = 0; nb = c; }
+      else { nr = c; ng = 0; nb = x; }
+      pixel.r = ((nr + m) * 255).round().clamp(0, 255);
+      pixel.g = ((ng + m) * 255).round().clamp(0, 255);
+      pixel.b = ((nb + m) * 255).round().clamp(0, 255);
+    }
+  }
+
+  if (p.grayscale) working = img.grayscale(working);
+  if (p.sepia) working = img.sepia(working);
+  if (p.sharpness > 0) working = img.adjustColor(working, contrast: 1.0 + p.sharpness * 0.5);
+  if (p.blur > 0) {
+    // Cap blur radius during preview (previewSize > 0) to avoid stalling UI
+    final blurRadius = (p.previewSize > 0 ? p.blur.clamp(0, 4) : p.blur).toInt();
+    if (blurRadius > 0) working = img.gaussianBlur(working, radius: blurRadius);
+  }
+
+  return Uint8List.fromList(img.encodeJpg(working, quality: 90));
+}
 
 class ImageEditScreen extends StatefulWidget {
   final Uint8List imageBytes;
@@ -20,203 +119,99 @@ class ImageEditScreen extends StatefulWidget {
 
 class _ImageEditScreenState extends State<ImageEditScreen> {
   late Uint8List _originalBytes;
-  late Uint8List _currentBytes;
-  late img.Image _originalImage;
-  
+  late Uint8List _previewBytes;  // downscaled, used during live drag
+  late Uint8List _currentBytes;  // full-res, used for display when not dragging
+  bool _previewReady = false;
+
   // Color adjustments
   double _brightness = 0.0;
   double _contrast = 1.0;
   double _saturation = 1.0;
   double _hue = 0.0;
-  
+
   // Transform
   double _rotation = 0.0;
   bool _flipH = false;
   bool _flipV = false;
-  
+
   // Filters
   double _sharpness = 0.0;
   double _blur = 0.0;
   bool _grayscale = false;
   bool _sepia = false;
-  
+
   bool _isProcessing = false;
+  bool _isDragging = false;
+  bool _previewInFlight = false;  // guard: at most one preview isolate at a time
+  int _previewGeneration = 0;     // discard stale results
+  Timer? _debounce;
   final CropController _cropController = CropController();
 
   @override
   void initState() {
     super.initState();
     _originalBytes = widget.imageBytes;
+    _previewBytes = widget.imageBytes;
     _currentBytes = widget.imageBytes;
-    _initializeImage();
+    _buildPreview();
   }
 
-  Future<void> _initializeImage() async {
-    try {
-      final decoded = img.decodeImage(widget.imageBytes);
-      if (decoded != null) {
-        _originalImage = decoded;
-      }
-    } catch (e) {
-      debugPrint('Error initializing image: $e');
-    }
+  Future<void> _buildPreview() async {
+    final preview = await compute(_downscaleIsolate, _originalBytes);
+    if (mounted) setState(() { _previewBytes = preview; _previewReady = true; });
   }
 
-  Future<void> _applyChanges() async {
-    if (_isProcessing) return;
-    
-    setState(() => _isProcessing = true);
-    
-    try {
-      // Create a copy of the original image
-      img.Image working = img.copyResize(_originalImage, 
-        width: _originalImage.width, 
-        height: _originalImage.height
-      );
+  _EditParams _makeParams({required bool preview}) => _EditParams(
+    imageBytes: preview ? _previewBytes : _originalBytes,
+    brightness: _brightness,
+    contrast: _contrast,
+    saturation: _saturation,
+    hue: _hue,
+    rotation: _rotation,
+    flipH: _flipH,
+    flipV: _flipV,
+    sharpness: _sharpness,
+    blur: _blur,
+    grayscale: _grayscale,
+    sepia: _sepia,
+    previewSize: preview ? 512 : 0,
+  );
 
-      // Apply transformations
-      if (_flipH) working = img.flipHorizontal(working);
-      if (_flipV) working = img.flipVertical(working);
-      if (_rotation != 0) {
-        working = img.copyRotate(working, angle: _rotation.toInt());
+  // Called on every slider tick — updates preview quickly
+  void _scheduleLivePreview() {
+    if (!_previewReady) return;
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 120), () async {
+      if (_previewInFlight) return; // skip if previous compute still running
+      _previewInFlight = true;
+      final gen = ++_previewGeneration;
+      try {
+        final result = await compute(_processImageIsolate, _makeParams(preview: true));
+        if (mounted && _isDragging && gen == _previewGeneration) {
+          setState(() => _currentBytes = result);
+        }
+      } finally {
+        _previewInFlight = false;
       }
+    });
+  }
 
-      // Apply color adjustments
-      if (_brightness != 0.0 || _contrast != 1.0 || _saturation != 1.0) {
-        working = img.adjustColor(
-          working,
-          brightness: _brightness.clamp(-1, 1),
-          contrast: _contrast.clamp(0.1, 3.0),
-          saturation: _saturation.clamp(0, 3),
-        );
-      }
-
-      // Apply hue shift
-      if (_hue != 0.0) {
-        working = _applyHueShift(working, _hue);
-      }
-
-      // Apply filters
-      if (_grayscale) {
-        working = img.grayscale(working);
-      }
-      if (_sepia) {
-        working = _applySepia(working);
-      }
-      if (_sharpness > 0) {
-        working = _applySharpness(working, _sharpness);
-      }
-      if (_blur > 0) {
-        working = img.gaussianBlur(working, radius: _blur.toInt());
-      }
-
-      // Encode with high quality
-      final processedBytes = Uint8List.fromList(img.encodeJpg(working, quality: 95));
-      
-      setState(() {
-        _currentBytes = processedBytes;
-        _isProcessing = false;
-      });
-    } catch (e) {
+  // Called on slider release — applies full-res quietly in background
+  void _applyFullRes() {
+    _debounce?.cancel();
+    ++_previewGeneration; // invalidate any in-flight preview so it won't overwrite
+    compute(_processImageIsolate, _makeParams(preview: false)).then((result) {
+      if (mounted) setState(() { _currentBytes = result; _isProcessing = false; });
+    }).catchError((e) {
       debugPrint('Error processing image: $e');
-      setState(() => _isProcessing = false);
-    }
+      if (mounted) setState(() => _isProcessing = false);
+    });
   }
 
-  img.Image _applyHueShift(img.Image image, double hue) {
-    // Simple hue shift implementation
-    final pixels = image.getBytes();
-    for (int i = 0; i < pixels.length; i += 4) {
-      if (pixels[i + 3] > 0) { // Skip transparent pixels
-        final hsv = _rgbToHsv(pixels[i], pixels[i + 1], pixels[i + 2]);
-        hsv[0] = (hsv[0] + hue) % 360;
-        final rgb = _hsvToRgb(hsv[0], hsv[1], hsv[2]);
-        pixels[i] = rgb[0];
-        pixels[i + 1] = rgb[1];
-        pixels[i + 2] = rgb[2];
-      }
-    }
-    return image;
-  }
-
-  img.Image _applySepia(img.Image image) {
-    final pixels = image.getBytes();
-    for (int i = 0; i < pixels.length; i += 4) {
-      if (pixels[i + 3] > 0) {
-        final r = pixels[i];
-        final g = pixels[i + 1];
-        final b = pixels[i + 2];
-        
-        final tr = (r * 0.393 + g * 0.769 + b * 0.189).round().clamp(0, 255);
-        final tg = (r * 0.349 + g * 0.686 + b * 0.168).round().clamp(0, 255);
-        final tb = (r * 0.272 + g * 0.534 + b * 0.131).round().clamp(0, 255);
-        
-        pixels[i] = tr;
-        pixels[i + 1] = tg;
-        pixels[i + 2] = tb;
-      }
-    }
-    return image;
-  }
-
-  img.Image _applySharpness(img.Image image, double amount) {
-    // Simple sharpening using contrast adjustment
-    final factor = 1.0 + (amount * 0.5);
-    return img.adjustColor(image, contrast: factor);
-  }
-
-  List<double> _rgbToHsv(int r, int g, int b) {
-    final rNorm = r / 255.0;
-    final gNorm = g / 255.0;
-    final bNorm = b / 255.0;
-    
-    final max = math.max(math.max(rNorm, gNorm), bNorm);
-    final min = math.min(math.min(rNorm, gNorm), bNorm);
-    final diff = max - min;
-    
-    double h = 0;
-    if (diff != 0) {
-      if (max == rNorm) {
-        h = ((gNorm - bNorm) / diff) % 6;
-      } else if (max == gNorm) {
-        h = (bNorm - rNorm) / diff + 2;
-      } else {
-        h = (rNorm - gNorm) / diff + 4;
-      }
-      h *= 60;
-    }
-    
-    final s = max == 0 ? 0.0 : diff / max;
-    final v = max;
-    
-    return [h, s, v];
-  }
-
-  List<int> _hsvToRgb(double h, double s, double v) {
-    final c = v * s;
-    final x = c * (1 - ((h / 60) % 2 - 1).abs());
-    final m = v - c;
-    
-    double r, g, b;
-    if (h < 60) {
-      r = c; g = x; b = 0;
-    } else if (h < 120) {
-      r = x; g = c; b = 0;
-    } else if (h < 180) {
-      r = 0; g = c; b = x;
-    } else if (h < 240) {
-      r = 0; g = x; b = c;
-    } else if (h < 300) {
-      r = x; g = 0; b = c;
-    } else {
-      r = c; g = 0; b = x;
-    }
-    
-    return [
-      ((r + m) * 255).round().clamp(0, 255),
-      ((g + m) * 255).round().clamp(0, 255),
-      ((b + m) * 255).round().clamp(0, 255),
-    ];
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
   }
 
   void _resetAll() {
@@ -233,35 +228,9 @@ class _ImageEditScreenState extends State<ImageEditScreen> {
       _grayscale = false;
       _sepia = false;
     });
-    _applyChanges();
+    _applyFullRes();
   }
 
-  Future<void> _saveAsCopy() async {
-    try {
-      final directory = await getApplicationDocumentsDirectory();
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final file = File('${directory.path}/edited_image_copy_$timestamp.jpg');
-      await file.writeAsBytes(_currentBytes);
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Image saved as copy and added to gallery: ${file.path}'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-        
-        // Return the edited image bytes so the gallery updates with the copy
-        Navigator.pop(context, _currentBytes);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving image: $e')),
-        );
-      }
-    }
-  }
 
   Future<void> _runInference() async {
     if (_isProcessing) return;
@@ -346,63 +315,6 @@ class _ImageEditScreenState extends State<ImageEditScreen> {
     }
   }
 
-  Future<void> _applyToCurrentImage() async {
-    try {
-      final directory = await getApplicationDocumentsDirectory();
-      final file = File('${directory.path}/current_edited_image.jpg');
-      await file.writeAsBytes(_currentBytes);
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Current image updated and added to gallery: ${file.path}'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-        
-        // Return the edited image bytes so the gallery updates with the current image
-        Navigator.pop(context, _currentBytes);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving image: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _saveAndAddToGallery() async {
-    try {
-      final directory = await getApplicationDocumentsDirectory();
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final file = File('${directory.path}/edited_image_$timestamp.jpg');
-      await file.writeAsBytes(_currentBytes);
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Image saved and added to gallery: ${file.path}'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-        
-        // Return the edited image bytes so the gallery updates
-        Navigator.pop(context, _currentBytes);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving image: $e')),
-        );
-      }
-    }
-  }
-
-  void _openFile(String path) {
-    debugPrint('Opening file: $path');
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -430,33 +342,11 @@ class _ImageEditScreenState extends State<ImageEditScreen> {
             icon: const Icon(Icons.refresh),
             tooltip: 'Reset All',
           ),
-          Tooltip(
-            message: 'Save a copy of the edited image and add to gallery',
-            child: TextButton(
-              onPressed: _saveAsCopy,
-              style: TextButton.styleFrom(
-                backgroundColor: Colors.green[50],
-                foregroundColor: Colors.green[700],
-              ),
-              child: const Text('Save as Copy'),
-            ),
-          ),
           const SizedBox(width: 8),
-          Tooltip(
-            message: 'Apply edits to current image and add to gallery',
-            child: TextButton(
-              onPressed: _applyToCurrentImage,
-              style: TextButton.styleFrom(
-                backgroundColor: Colors.orange[50],
-                foregroundColor: Colors.orange[700],
-              ),
-              child: const Text('Apply to Current'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          FilledButton(
+          FilledButton.icon(
             onPressed: () => Navigator.pop(context, _currentBytes),
-            child: const Text('Apply & Return'),
+            icon: const Icon(Icons.copy, size: 16),
+            label: const Text('Save'),
           ),
           const SizedBox(width: 8),
         ],
@@ -519,7 +409,7 @@ class _ImageEditScreenState extends State<ImageEditScreen> {
                        ),
                        const SizedBox(height: 8),
                        Text(
-                         '• Save as Copy: Creates a new copy and adds to gallery\n'
+                         '• Save: Creates a new copy and adds to gallery\n'
                          '• Apply to Current: Updates current image and adds to gallery\n'
                          '• Apply & Return: Returns edited image without saving',
                          style: TextStyle(
@@ -597,34 +487,26 @@ class _ImageEditScreenState extends State<ImageEditScreen> {
         _buildSlider(
           label: 'Rotation',
           value: _rotation,
+          onChanged: (v) { setState(() { _isDragging = true; _rotation = v; }); _scheduleLivePreview(); },
+          onChangeEnd: (_) { setState(() => _isDragging = false); _applyFullRes(); },
           min: -180,
           max: 180,
-          onChanged: (v) {
-            setState(() => _rotation = v);
-            _applyChanges();
-          },
         ),
         const SizedBox(height: 16),
         Row(
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () {
-                  setState(() => _flipH = !_flipH);
-                  _applyChanges();
-                },
-                icon: Icon(_flipH ? Icons.flip : Icons.flip),
+                onPressed: () { setState(() => _flipH = !_flipH); _applyFullRes(); },
+                icon: const Icon(Icons.flip),
                 label: Text(_flipH ? 'Flipped H' : 'Flip H'),
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () {
-                  setState(() => _flipV = !_flipV);
-                  _applyChanges();
-                },
-                icon: Icon(_flipV ? Icons.flip_camera_android : Icons.flip_camera_android),
+                onPressed: () { setState(() => _flipV = !_flipV); _applyFullRes(); },
+                icon: const Icon(Icons.flip_camera_android),
                 label: Text(_flipV ? 'Flipped V' : 'Flip V'),
               ),
             ),
@@ -640,42 +522,34 @@ class _ImageEditScreenState extends State<ImageEditScreen> {
         _buildSlider(
           label: 'Brightness',
           value: _brightness,
+          onChanged: (v) { setState(() { _isDragging = true; _brightness = v; }); _scheduleLivePreview(); },
+          onChangeEnd: (_) { setState(() => _isDragging = false); _applyFullRes(); },
           min: -1,
           max: 1,
-          onChanged: (v) {
-            setState(() => _brightness = v);
-            _applyChanges();
-          },
         ),
         _buildSlider(
           label: 'Contrast',
           value: _contrast,
+          onChanged: (v) { setState(() { _isDragging = true; _contrast = v; }); _scheduleLivePreview(); },
+          onChangeEnd: (_) { setState(() => _isDragging = false); _applyFullRes(); },
           min: 0.1,
           max: 3.0,
-          onChanged: (v) {
-            setState(() => _contrast = v);
-            _applyChanges();
-          },
         ),
         _buildSlider(
           label: 'Saturation',
           value: _saturation,
+          onChanged: (v) { setState(() { _isDragging = true; _saturation = v; }); _scheduleLivePreview(); },
+          onChangeEnd: (_) { setState(() => _isDragging = false); _applyFullRes(); },
           min: 0,
           max: 3,
-          onChanged: (v) {
-            setState(() => _saturation = v);
-            _applyChanges();
-          },
         ),
         _buildSlider(
           label: 'Hue',
           value: _hue,
+          onChanged: (v) { setState(() { _isDragging = true; _hue = v; }); _scheduleLivePreview(); },
+          onChangeEnd: (_) { setState(() => _isDragging = false); _applyFullRes(); },
           min: -180,
           max: 180,
-          onChanged: (v) {
-            setState(() => _hue = v);
-            _applyChanges();
-          },
         ),
       ],
     );
@@ -687,38 +561,28 @@ class _ImageEditScreenState extends State<ImageEditScreen> {
         _buildSlider(
           label: 'Sharpness',
           value: _sharpness,
+          onChanged: (v) { setState(() { _isDragging = true; _sharpness = v; }); _scheduleLivePreview(); },
+          onChangeEnd: (_) { setState(() => _isDragging = false); _applyFullRes(); },
           min: 0,
           max: 2,
-          onChanged: (v) {
-            setState(() => _sharpness = v);
-            _applyChanges();
-          },
         ),
         _buildSlider(
           label: 'Blur',
           value: _blur,
+          onChanged: (v) { setState(() { _isDragging = true; _blur = v; }); _scheduleLivePreview(); },
+          onChangeEnd: (_) { setState(() => _isDragging = false); _applyFullRes(); },
           min: 0,
           max: 10,
-          onChanged: (v) {
-            setState(() => _blur = v);
-            _applyChanges();
-          },
         ),
         SwitchListTile(
           title: const Text('Grayscale'),
           value: _grayscale,
-          onChanged: (value) {
-            setState(() => _grayscale = value);
-            _applyChanges();
-          },
+          onChanged: (value) { setState(() => _grayscale = value); _applyFullRes(); },
         ),
         SwitchListTile(
           title: const Text('Sepia'),
           value: _sepia,
-          onChanged: (value) {
-            setState(() => _sepia = value);
-            _applyChanges();
-          },
+          onChanged: (value) { setState(() => _sepia = value); _applyFullRes(); },
         ),
       ],
     );
@@ -730,6 +594,7 @@ class _ImageEditScreenState extends State<ImageEditScreen> {
     required double min,
     required double max,
     required ValueChanged<double> onChanged,
+    ValueChanged<double>? onChangeEnd,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -742,7 +607,6 @@ class _ImageEditScreenState extends State<ImageEditScreen> {
               style: TextStyle(
                 color: Colors.grey[600],
                 fontSize: 12,
-                // fontFamily: 'monospace',
               ),
             ),
           ],
@@ -752,6 +616,7 @@ class _ImageEditScreenState extends State<ImageEditScreen> {
           min: min,
           max: max,
           onChanged: onChanged,
+          onChangeEnd: onChangeEnd,
           activeColor: const Color(0xFF6B46C1),
           inactiveColor: Colors.grey[300],
         ),

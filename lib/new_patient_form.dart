@@ -195,10 +195,11 @@ class _NewPatientFormState extends State<NewPatientForm> {
         hcgLevel: _hcgLevelController.text.isNotEmpty ? double.tryParse(_hcgLevelController.text) : null,
         patientSummary: _patientSummaryController.text,
       );
+      Patient savedPatient;
       if (patient.id != null) {
-        await _patientService.updatePatient(patient);
+        savedPatient = await _patientService.updatePatient(patient);
       } else {
-        await _patientService.createPatient(patient);
+        savedPatient = await _patientService.createPatient(patient);
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -207,7 +208,7 @@ class _NewPatientFormState extends State<NewPatientForm> {
         if (goToExam) {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (context) => const PiCameraScreen()),
+            MaterialPageRoute(builder: (context) => PiCameraScreen(initialPatient: savedPatient)),
           );
         } else {
           Navigator.pop(context, true);

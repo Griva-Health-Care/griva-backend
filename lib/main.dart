@@ -3,7 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'core/app_router.dart';
+import 'core/config.dart';
 import 'login_page.dart';
 import 'launch_screen.dart';
 import 'services/auth_service.dart';
@@ -15,15 +18,22 @@ const _teleMode = bool.fromEnvironment('TELE_MODE', defaultValue: false);
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (_teleMode) {
-    runApp(const _TeleRoot());
-    return;
-  }
+  await Supabase.initialize(
+    url:     Config.supabaseUrl,
+    anonKey: Config.supabaseAnonKey,
+    authOptions: const FlutterAuthClientOptions(autoRefreshToken: true),
+  );
 
+  // Initialize Firebase for FCM only (not available on Linux).
   if (!Platform.isLinux) {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+  }
+
+  if (_teleMode) {
+    runApp(const _TeleRoot());
+    return;
   }
 
   final auth = AuthService();
@@ -89,13 +99,19 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _init() async {
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
-    // Always require the user to log in on every cold start.
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => GrivaLoginPage(authService: widget.authService),
-      ),
-    );
+
+    final session = Supabase.instance.client.auth.currentSession;
+
+    if (session != null) {
+      AppRouter.navigateToHome(context, userEmail: session.user.email ?? '');
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GrivaLoginPage(authService: widget.authService),
+        ),
+      );
+    }
   }
 
   @override

@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -46,17 +45,14 @@ class _CreateCaseScreenState extends State<CreateCaseScreen> {
     setState(() { _submitting = true; _uploaded = 0; _error = null; });
     try {
       final ts       = DateTime.now().millisecondsSinceEpoch;
-      final caseId   = 'case_$ts';
       final uploaded = <GrivaFile>[];
 
       for (var i = 0; i < _files.length; i++) {
         final file     = _files[i];
         final filename = '${ts}_$i${_ext(file.path)}';
-        final ref      = FirebaseStorage.instance.ref('tele_cases/$caseId/$filename');
-        await ref.putFile(file, SettableMetadata(contentType: 'image/jpeg'));
-        final url  = await ref.getDownloadURL();
-        final size = await file.length();
-        uploaded.add(GrivaFile(url: url, name: filename, type: 'image/jpeg', size: size));
+        final bytes    = await file.readAsBytes();
+        final grivaFile = await GrivaApiService.instance.uploadFile(bytes, filename, 'image/jpeg');
+        uploaded.add(grivaFile);
         if (mounted) setState(() => _uploaded = i + 1);
       }
 

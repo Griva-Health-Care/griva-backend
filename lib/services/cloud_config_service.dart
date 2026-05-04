@@ -1,37 +1,37 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-/// Reads the per-doctor cloud-sync configuration stored in Firestore.
+/// Reads the per-doctor cloud-sync configuration stored in Supabase Postgres.
 ///
-/// Firestore path: `doctor_config/{doctorId}`
+/// Table: node_app.doctor_config (uid PK = Supabase user UUID)
 ///
 /// Fields written by the Griva admin panel:
 ///   cloudSyncEnabled  : bool   — whether this doctor has paid for cloud sync
 ///   role              : String — 'solo' | 'clinic' | 'diagnostic' | 'tele_reporter'
 ///   creditBalance     : int    — prepaid report credits (diagnostic centers only)
 ///
-/// Call [fetch] once after login and cache the result for the session.
-/// Call [stream] to listen for real-time admin changes (e.g., when a payment
-/// is confirmed and the flag is flipped while the app is open).
+/// This replaces the previous Firestore `doctor_config/{uid}` collection.
 class CloudConfigService {
   CloudConfigService._();
   static final CloudConfigService instance = CloudConfigService._();
 
-  static const _collection = 'doctor_config';
+  SupabaseClient get _db => Supabase.instance.client;
 
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
-
-  // In-memory cache updated by the active stream subscription.
   DoctorConfig _cache = const DoctorConfig();
   DoctorConfig get current => _cache;
 
-  /// One-shot fetch.  Returns [DoctorConfig.defaults] on any error so the app
-  /// degrades gracefully when offline.
+  RealtimeChannel? _channel;
+
+  /// One-shot fetch. Returns [DoctorConfig] defaults on any error.
   Future<DoctorConfig> fetch(String doctorId) async {
     try {
-      final doc = await _db.collection(_collection).doc(doctorId).get();
-      if (doc.exists && doc.data() != null) {
-        _cache = DoctorConfig.fromMap(doc.data()!);
+      final row = await _db
+          .from('doctor_config')
+          .select()
+          .eq('uid', doctorId)
+          .maybeSingle();
+      if (row != null) {
+        _cache = DoctorConfig.fromMap(row);
         debugPrint('[CONFIG] Fetched config for $doctorId: $_cache');
         return _cache;
       }
@@ -41,27 +41,45 @@ class CloudConfigService {
     return _cache;
   }
 
-  /// Real-time stream — call [listenForChanges] once after login.
+  /// Real-time stream using Supabase Realtime.
   /// The returned cancel function should be called on logout.
   Future<void Function()> listenForChanges(
     String doctorId, {
     required void Function(DoctorConfig) onChanged,
   }) async {
-    final sub = _db
-        .collection(_collection)
-        .doc(doctorId)
-        .snapshots()
-        .listen((snap) {
-      if (snap.exists && snap.data() != null) {
-        _cache = DoctorConfig.fromMap(snap.data()!);
-        debugPrint('[CONFIG] Config updated for $doctorId: $_cache');
-        onChanged(_cache);
-      }
-    }, onError: (e) => debugPrint('[CONFIG] Stream error: $e'));
-    return sub.cancel;
+    _channel?.unsubscribe();
+
+    _channel = _db
+        .channel('doctor_config:$doctorId')
+        .onPostgresChanges(
+          event:  PostgresChangeEvent.update,
+          schema: 'node_app',
+          table:  'doctor_config',
+          filter: PostgresChangeFilter(
+            type:  PostgresChangeFilterType.eq,
+            column: 'uid',
+            value: doctorId,
+          ),
+          callback: (payload) {
+            final newRow = payload.newRecord;
+            if (newRow.isNotEmpty) {
+              _cache = DoctorConfig.fromMap(newRow);
+              debugPrint('[CONFIG] Config updated for $doctorId: $_cache');
+              onChanged(_cache);
+            }
+          },
+        )
+        .subscribe();
+
+    return () async {
+      await _channel?.unsubscribe();
+      _channel = null;
+    };
   }
 
   void reset() {
+    _channel?.unsubscribe();
+    _channel = null;
     _cache = const DoctorConfig();
   }
 }
@@ -69,19 +87,21 @@ class CloudConfigService {
 /// Immutable snapshot of a doctor's cloud configuration.
 class DoctorConfig {
   final bool   cloudSyncEnabled;
-  final String role;           // 'solo' | 'clinic' | 'diagnostic' | 'tele_reporter'
-  final int    creditBalance;  // prepaid report credits (diagnostic centers only)
+  final String role;
+  final int    creditBalance;
 
   const DoctorConfig({
     this.cloudSyncEnabled = false,
-    this.role = 'solo',
-    this.creditBalance = 0,
+    this.role             = 'solo',
+    this.creditBalance    = 0,
   });
 
   factory DoctorConfig.fromMap(Map<String, dynamic> map) => DoctorConfig(
-    cloudSyncEnabled: (map['cloudSyncEnabled'] as bool?) ?? false,
+    cloudSyncEnabled: (map['cloudSyncEnabled'] as bool?)  ??
+                      (map['cloud_sync_enabled'] as bool?) ?? false,
     role:             (map['role']             as String?) ?? 'solo',
-    creditBalance:    (map['creditBalance']    as int?)    ?? 0,
+    creditBalance:    (map['creditBalance']    as int?)    ??
+                      (map['credit_balance']  as int?)    ?? 0,
   );
 
   Map<String, dynamic> toMap() => {

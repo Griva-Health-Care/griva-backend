@@ -12,6 +12,7 @@ import '../gallery_screen.dart';
 import '../new_patient_form.dart';
 import 'report_pdf_viewer_screen.dart';
 import '../exam_screen.dart';
+import '../image_edit_screen.dart';
 
 
 class PatientDetailsScreen extends StatefulWidget {
@@ -853,40 +854,97 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(7),
-          child: FutureBuilder<Uint8List?>(
-            future: ImageService.loadImage(imagePath),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(
-                  child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF8B44F7)),
-                    strokeWidth: 2,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              FutureBuilder<Uint8List?>(
+                future: ImageService.loadImage(imagePath),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF8B44F7)),
+                        strokeWidth: 2,
+                      ),
+                    );
+                  }
+                  if (snapshot.hasError || snapshot.data == null) {
+                    return Container(
+                      color: Colors.grey.withOpacity(0.1),
+                      child: const Icon(Icons.broken_image, color: Colors.grey, size: 32),
+                    );
+                  }
+                  return Image.memory(
+                    snapshot.data!,
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: double.infinity,
+                  );
+                },
+              ),
+              // Edit button overlay at bottom-right
+              Positioned(
+                bottom: 4,
+                right: 4,
+                child: GestureDetector(
+                  onTap: () => _editImage(imagePath),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8B44F7).withOpacity(0.85),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(Icons.edit, color: Colors.white, size: 14),
                   ),
-                );
-              }
-              
-              if (snapshot.hasError || snapshot.data == null) {
-                return Container(
-                  color: Colors.grey.withOpacity(0.1),
-                  child: const Icon(
-                    Icons.broken_image,
-                    color: Colors.grey,
-                    size: 32,
-                  ),
-                );
-              }
-
-              return Image.memory(
-                snapshot.data!,
-                fit: BoxFit.cover,
-                width: double.infinity,
-                height: double.infinity,
-              );
-            },
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _editImage(String imagePath) async {
+    final originalBytes = await ImageService.loadImage(imagePath);
+    if (originalBytes == null || !mounted) return;
+
+    final editedBytes = await Navigator.push<Uint8List?>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ImageEditScreen(imageBytes: originalBytes),
+      ),
+    );
+
+    if (editedBytes == null || !mounted) return;
+
+    try {
+      // Always save as a new copy — never overwrite the original
+      final newPath = await ImageService.saveExaminationImage(
+        editedBytes,
+        _patient.id!,
+        {'source': 'edited_copy', 'originalPath': imagePath},
+      );
+      await _patientService.addExaminationImage(
+        _patient.id!,
+        newPath,
+        {'source': 'edited_copy'},
+      );
+      setState(() {
+        _examinationImages.add(newPath);
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Edited copy saved to patient images')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save edited image: $e')),
+        );
+      }
+    }
   }
 
   void _showImageDialog(String imagePath, int index) {
@@ -972,13 +1030,27 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
                     color: Colors.black.withOpacity(0.7),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Text(
-                    'Image ${index + 1} of ${_examinationImages.length}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                    ),
-                    textAlign: TextAlign.center,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Image ${index + 1} of ${_examinationImages.length}',
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _editImage(imagePath);
+                        },
+                        icon: const Icon(Icons.edit, color: Colors.white, size: 16),
+                        label: const Text('Edit', style: TextStyle(color: Colors.white, fontSize: 14)),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          backgroundColor: const Color(0xFF8B44F7).withOpacity(0.8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

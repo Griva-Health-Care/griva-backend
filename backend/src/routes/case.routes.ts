@@ -1,27 +1,67 @@
 import { Router } from 'express';
 import { getMessaging } from 'firebase-admin/messaging';
+import { fcmInitialized } from '../utils/firebase';
+import { supabaseAdmin } from '../utils/supabase';
 import { prisma } from '../utils/prisma';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { requireRole } from '../middleware/role.middleware';
 import PDFDocument from 'pdfkit';
+import multer from 'multer';
+import path from 'path';
 
 const router = Router();
+
+// ── File upload (Supabase Storage) ────────────────────────────────────────────
+
+// Memory storage so we can stream the buffer to Supabase Storage.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+// POST /cases/upload  — upload one file to Supabase Storage, returns { url, name, type, size }
+router.post('/upload', authMiddleware, upload.single('file'), async (req, res) => {
+  if (!req.file) { res.status(400).json({ message: 'No file received' }); return; }
+
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${path.extname(req.file.originalname)}`;
+
+  const { data, error } = await supabaseAdmin.storage
+    .from('tele-cases')
+    .upload(filename, req.file.buffer, {
+      contentType: req.file.mimetype,
+      upsert:      false,
+    });
+
+  if (error) {
+    console.error('[UPLOAD]', error.message);
+    res.status(500).json({ message: 'Upload failed: ' + error.message });
+    return;
+  }
+
+  const { data: urlData } = supabaseAdmin.storage
+    .from('tele-cases')
+    .getPublicUrl(data.path);
+
+  res.json({
+    url : urlData.publicUrl,
+    name: filename,
+    type: req.file.mimetype,
+    size: req.file.size,
+  });
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Pick available tele_reporter with fewest active cases (load balancing). */
 async function autoAssign(): Promise<string | null> {
   const reporters = await prisma.user.findMany({
-    where: { role: 'tele_reporter', isActive: true, isAvailable: true },
-    select: { firebaseUid: true },
+    where:  { role: 'tele_reporter', isActive: true, isAvailable: true },
+    select: { supabaseUid: true },
   });
   if (!reporters.length) return null;
 
   const counts = await Promise.all(
     reporters.map(async (r) => ({
-      uid: r.firebaseUid,
+      uid:   r.supabaseUid,
       count: await prisma.teleCase.count({
-        where: { assignedUid: r.firebaseUid, status: { not: 'completed' } },
+        where: { assignedUid: r.supabaseUid, status: { not: 'completed' } },
       }),
     }))
   );
@@ -32,8 +72,8 @@ async function autoAssign(): Promise<string | null> {
 /** Write a notification row and send an FCM push. Fire-and-forget — never throws. */
 async function notify(
   userId: string,
-  title: string,
-  body: string,
+  title:  string,
+  body:   string,
   caseId?: string
 ): Promise<void> {
   try {
@@ -43,18 +83,20 @@ async function notify(
     });
 
     // 2. Send FCM push if the user has a registered device token.
+    if (!fcmInitialized) return;
+
     const user = await prisma.user.findUnique({
-      where: { id: userId },
+      where:  { id: userId },
       select: { fcmToken: true },
     });
 
     if (user?.fcmToken) {
       await getMessaging().send({
-        token: user.fcmToken,
+        token:       user.fcmToken,
         notification: { title, body },
-        data: { caseId: caseId ?? '' },
-        android: { priority: 'high' },
-        apns: { payload: { aps: { sound: 'default' } } },
+        data:        { caseId: caseId ?? '' },
+        android:     { priority: 'high' },
+        apns:        { payload: { aps: { sound: 'default' } } },
       });
     }
   } catch (err) {
@@ -68,11 +110,13 @@ async function notify(
 router.get('/reporters', authMiddleware, async (_req, res) => {
   try {
     const reporters = await prisma.user.findMany({
-      where: { role: 'tele_reporter', isActive: true },
-      select: { id: true, fullName: true, email: true, hospital: true, firebaseUid: true, isAvailable: true },
+      where:   { role: 'tele_reporter', isActive: true },
+      select:  { id: true, fullName: true, email: true, hospital: true, supabaseUid: true, isAvailable: true },
       orderBy: { fullName: 'asc' },
     });
-    res.json({ reporters });
+    // Return supabaseUid as the reporter identifier (Flutter uses it for case assignment)
+    const mapped = reporters.map((r) => ({ ...r, firebaseUid: r.supabaseUid }));
+    res.json({ reporters: mapped });
   } catch (error) {
     console.error('[CASE]', error instanceof Error ? error.message : error);
     res.status(500).json({ message: 'Failed to fetch reporters' });
@@ -88,8 +132,8 @@ router.put('/availability', authMiddleware, requireRole('tele_reporter', 'admin'
       return res.status(400).json({ message: 'isAvailable must be a boolean' });
     }
     const user = await prisma.user.update({
-      where: { id: userId },
-      data: { isAvailable },
+      where:  { id: userId },
+      data:   { isAvailable },
       select: { id: true, fullName: true, role: true, isAvailable: true },
     });
     res.json({ user });
@@ -104,9 +148,9 @@ router.get('/notifications', authMiddleware, async (req, res) => {
   try {
     const { userId } = (req as any).user;
     const notifications = await (prisma as any).notification.findMany({
-      where: { userId },
+      where:   { userId },
       orderBy: { createdAt: 'desc' },
-      take: 50,
+      take:    50,
     });
     res.json({ notifications });
   } catch (error) {
@@ -138,8 +182,8 @@ router.post('/', authMiddleware, async (req, res) => {
     const { userId } = (req as any).user;
     const { assignedUid, notes, files } = req.body as {
       assignedUid?: string;
-      notes?: string;
-      files: Array<{ url: string; name: string; type: string; size: number }>;
+      notes?:       string;
+      files:        Array<{ url: string; name: string; type: string; size: number }>;
     };
 
     if (!Array.isArray(files) || files.length === 0) {
@@ -147,20 +191,20 @@ router.post('/', authMiddleware, async (req, res) => {
     }
 
     let resolvedUid: string | null = assignedUid ?? null;
-    let assignedBy: string = userId;
+    let assignedBy:  string        = userId;
     if (!resolvedUid) {
       resolvedUid = await autoAssign();
-      assignedBy = 'auto';
+      assignedBy  = 'auto';
     }
 
     const teleCase = await prisma.teleCase.create({
       data: {
         submittedBy: userId,
         assignedUid: resolvedUid ?? null,
-        assignedBy: resolvedUid ? assignedBy : null,
-        notes: notes ?? null,
+        assignedBy:  resolvedUid ? assignedBy : null,
+        notes:       notes ?? null,
         files,
-        status: resolvedUid ? 'assigned' : 'pending',
+        status:      resolvedUid ? 'assigned' : 'pending',
       },
     });
 
@@ -173,7 +217,7 @@ router.post('/', authMiddleware, async (req, res) => {
     // If a reporter was auto-assigned, notify them too.
     if (resolvedUid) {
       const reporter = await prisma.user.findFirst({
-        where: { firebaseUid: resolvedUid },
+        where:  { supabaseUid: resolvedUid },
         select: { id: true },
       });
       if (reporter) {
@@ -184,7 +228,7 @@ router.post('/', authMiddleware, async (req, res) => {
     res.status(201).json({
       teleCase,
       autoAssigned: !assignedUid && !!resolvedUid,
-      unassigned: !resolvedUid,
+      unassigned:   !resolvedUid,
     });
   } catch (error) {
     console.error('[CASE]', error instanceof Error ? error.message : error);
@@ -195,14 +239,14 @@ router.post('/', authMiddleware, async (req, res) => {
 // GET /cases — list cases (role-scoped)
 router.get('/', authMiddleware, async (req, res) => {
   try {
-    const { userId, role, firebaseUid } = (req as any).user;
+    const { userId, role, supabaseUid } = (req as any).user;
     const { status } = req.query as { status?: string };
 
     const where: Record<string, unknown> =
       role === 'admin' || role === 'superadmin'
         ? {}
         : role === 'tele_reporter'
-        ? { assignedUid: firebaseUid }
+        ? { assignedUid: supabaseUid }
         : { submittedBy: userId };
 
     if (status) where.status = status;
@@ -210,7 +254,7 @@ router.get('/', authMiddleware, async (req, res) => {
     const cases = await prisma.teleCase.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take:    100,
     });
     res.json({ cases });
   } catch (error) {
@@ -223,7 +267,7 @@ router.get('/', authMiddleware, async (req, res) => {
 router.get('/pending', authMiddleware, requireRole('admin', 'superadmin'), async (_req, res) => {
   try {
     const cases = await prisma.teleCase.findMany({
-      where: { status: 'pending' },
+      where:   { status: 'pending' },
       orderBy: { createdAt: 'asc' },
     });
     res.json({ cases });
@@ -236,15 +280,15 @@ router.get('/pending', authMiddleware, requireRole('admin', 'superadmin'), async
 // GET /cases/:id — full case detail
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
-    const { userId, role, firebaseUid } = (req as any).user;
+    const { userId, role, supabaseUid } = (req as any).user;
     const id = req.params['id'] as string;
 
     const teleCase = await prisma.teleCase.findUnique({ where: { id } });
     if (!teleCase) return res.status(404).json({ message: 'Case not found' });
 
-    const isAdmin = role === 'admin' || role === 'superadmin';
-    const isAssignedReporter = role === 'tele_reporter' && teleCase.assignedUid === firebaseUid;
-    const isSubmitter = teleCase.submittedBy === userId;
+    const isAdmin            = role === 'admin' || role === 'superadmin';
+    const isAssignedReporter = role === 'tele_reporter' && teleCase.assignedUid === supabaseUid;
+    const isSubmitter        = teleCase.submittedBy === userId;
 
     if (!isAdmin && !isAssignedReporter && !isSubmitter) {
       return res.status(403).json({ message: 'Access denied' });
@@ -259,15 +303,15 @@ router.get('/:id', authMiddleware, async (req, res) => {
 // GET /cases/:id/report/pdf — generate and stream a PDF of the completed report
 router.get('/:id/report/pdf', authMiddleware, async (req, res) => {
   try {
-    const { userId, role, firebaseUid } = (req as any).user;
+    const { userId, role, supabaseUid } = (req as any).user;
     const id = req.params['id'] as string;
 
     const teleCase = await prisma.teleCase.findUnique({ where: { id } });
     if (!teleCase) return res.status(404).json({ message: 'Case not found' });
 
-    const isAdmin = role === 'admin' || role === 'superadmin';
-    const isAssignedReporter = role === 'tele_reporter' && teleCase.assignedUid === firebaseUid;
-    const isSubmitter = teleCase.submittedBy === userId;
+    const isAdmin            = role === 'admin' || role === 'superadmin';
+    const isAssignedReporter = role === 'tele_reporter' && teleCase.assignedUid === supabaseUid;
+    const isSubmitter        = teleCase.submittedBy === userId;
     if (!isAdmin && !isAssignedReporter && !isSubmitter) {
       return res.status(403).json({ message: 'Access denied' });
     }
@@ -276,9 +320,8 @@ router.get('/:id/report/pdf', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Report not yet completed' });
     }
 
-    // Look up the submitting doctor's name for the header.
     const doctor = await prisma.user.findUnique({
-      where: { id: teleCase.submittedBy },
+      where:  { id: teleCase.submittedBy },
       select: { fullName: true, email: true, hospital: true },
     });
 
@@ -287,7 +330,6 @@ router.get('/:id/report/pdf', authMiddleware, async (req, res) => {
     res.setHeader('Content-Disposition', `inline; filename="tele-report-${id.slice(0, 8)}.pdf"`);
     doc.pipe(res);
 
-    // ── Header ──────────────────────────────────────────────────────────────
     doc.fontSize(20).font('Helvetica-Bold').text('Griva Tele-Report', { align: 'center' });
     doc.moveDown(0.3);
     doc.fontSize(11).font('Helvetica').fillColor('#555555')
@@ -302,7 +344,6 @@ router.get('/:id/report/pdf', authMiddleware, async (req, res) => {
     doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#CCCCCC').stroke();
     doc.moveDown(0.8);
 
-    // ── Doctor info ──────────────────────────────────────────────────────────
     doc.fontSize(13).font('Helvetica-Bold').fillColor('#000000').text('Submitted By');
     doc.moveDown(0.3);
     doc.fontSize(11).font('Helvetica').fillColor('#333333');
@@ -311,7 +352,6 @@ router.get('/:id/report/pdf', authMiddleware, async (req, res) => {
     if (doctor?.hospital) doc.text(`Hospital: ${doctor.hospital}`);
     doc.moveDown(0.8);
 
-    // ── Clinical notes ───────────────────────────────────────────────────────
     if (teleCase.notes) {
       doc.fontSize(13).font('Helvetica-Bold').fillColor('#000000').text('Clinical Notes');
       doc.moveDown(0.3);
@@ -322,14 +362,12 @@ router.get('/:id/report/pdf', authMiddleware, async (req, res) => {
     doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#CCCCCC').stroke();
     doc.moveDown(0.8);
 
-    // ── Reporter findings ────────────────────────────────────────────────────
     doc.fontSize(13).font('Helvetica-Bold').fillColor('#000000').text('Reporter Findings');
     doc.moveDown(0.3);
     doc.fontSize(11).font('Helvetica').fillColor('#333333')
        .text(teleCase.reporterNote, { lineGap: 5 });
     doc.moveDown(1.2);
 
-    // ── Footer ───────────────────────────────────────────────────────────────
     doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#CCCCCC').stroke();
     doc.moveDown(0.5);
     doc.fontSize(9).fillColor('#999999')
@@ -355,13 +393,12 @@ router.put('/:id/assign', authMiddleware, requireRole('admin', 'superadmin'), as
 
     const teleCase = await prisma.teleCase.update({
       where: { id },
-      data: { assignedUid, assignedBy: userId, status: 'assigned' },
+      data:  { assignedUid, assignedBy: userId, status: 'assigned' },
     });
 
-    // Notify submitter and reporter.
     await notify(teleCase.submittedBy, 'Case Assigned', 'Your case has been assigned to a reporter.', id);
     const reporter = await prisma.user.findFirst({
-      where: { firebaseUid: assignedUid },
+      where:  { supabaseUid: assignedUid },
       select: { id: true },
     });
     if (reporter) {
@@ -378,7 +415,7 @@ router.put('/:id/assign', authMiddleware, requireRole('admin', 'superadmin'), as
 // PUT /cases/:id/status — reporter or admin updates status
 router.put('/:id/status', authMiddleware, async (req, res) => {
   try {
-    const { role, firebaseUid } = (req as any).user;
+    const { role, supabaseUid } = (req as any).user;
     const id = req.params['id'] as string;
     const { status } = req.body as { status: string };
 
@@ -390,15 +427,15 @@ router.put('/:id/status', authMiddleware, async (req, res) => {
     const existing = await prisma.teleCase.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ message: 'Case not found' });
 
-    const isAdmin = role === 'admin' || role === 'superadmin';
-    const isAssignedReporter = role === 'tele_reporter' && existing.assignedUid === firebaseUid;
+    const isAdmin            = role === 'admin' || role === 'superadmin';
+    const isAssignedReporter = role === 'tele_reporter' && existing.assignedUid === supabaseUid;
     if (!isAdmin && !isAssignedReporter) {
       return res.status(403).json({ message: 'Insufficient permissions' });
     }
 
     const teleCase = await prisma.teleCase.update({
       where: { id },
-      data: { status, ...(status === 'completed' ? { completedAt: new Date() } : {}) },
+      data:  { status, ...(status === 'completed' ? { completedAt: new Date() } : {}) },
     });
 
     res.json({ teleCase });
@@ -411,7 +448,7 @@ router.put('/:id/status', authMiddleware, async (req, res) => {
 // POST /cases/:id/report — reporter submits findings
 router.post('/:id/report', authMiddleware, async (req, res) => {
   try {
-    const { role, firebaseUid } = (req as any).user;
+    const { role, supabaseUid } = (req as any).user;
     const id = req.params['id'] as string;
     const { reporterNote } = req.body as { reporterNote: string };
 
@@ -422,18 +459,17 @@ router.post('/:id/report', authMiddleware, async (req, res) => {
     const existing = await prisma.teleCase.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ message: 'Case not found' });
 
-    const isAdmin = role === 'admin' || role === 'superadmin';
-    const isAssignedReporter = role === 'tele_reporter' && existing.assignedUid === firebaseUid;
+    const isAdmin            = role === 'admin' || role === 'superadmin';
+    const isAssignedReporter = role === 'tele_reporter' && existing.assignedUid === supabaseUid;
     if (!isAdmin && !isAssignedReporter) {
       return res.status(403).json({ message: 'Only the assigned reporter can submit findings' });
     }
 
     const teleCase = await prisma.teleCase.update({
       where: { id },
-      data: { reporterNote: reporterNote.trim(), status: 'completed', completedAt: new Date() },
+      data:  { reporterNote: reporterNote.trim(), status: 'completed', completedAt: new Date() },
     });
 
-    // Notify the submitter that their report is ready.
     await notify(
       teleCase.submittedBy,
       'Report Ready',

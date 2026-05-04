@@ -41,48 +41,48 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyDzzqjNQNL4-Jgjq7D98Ns6sPkcZ0LkdSQ',
-    appId: '1:687756687445:web:88b8e8bdae8f9c523ebcdc',
-    messagingSenderId: '687756687445',
-    projectId: 'griva-app-18f0f',
-    authDomain: 'griva-app-18f0f.firebaseapp.com',
-    storageBucket: 'griva-app-18f0f.firebasestorage.app',
-    measurementId: 'G-Z88VS5RDGK',
+    apiKey: 'AIzaSyA3QM8LlkrgjVG-ape_xS1txE5VHBeBeio',
+    appId: '1:441355804022:web:cf68dd3a995ad3e8df6e57',
+    messagingSenderId: '441355804022',
+    projectId: 'griva-43cc0',
+    authDomain: 'griva-43cc0.firebaseapp.com',
+    storageBucket: 'griva-43cc0.firebasestorage.app',
+    measurementId: 'G-SN1GN101RS',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyCmZyIcx-dMxJDLLHoazVqwaMmpPKGGhvI',
-    appId: '1:687756687445:android:da419f99848eb2473ebcdc',
-    messagingSenderId: '687756687445',
-    projectId: 'griva-app-18f0f',
-    storageBucket: 'griva-app-18f0f.firebasestorage.app',
+    apiKey: 'AIzaSyDDKYsvORAj387Bcvcznc_F4VOYmj_uldM',
+    appId: '1:441355804022:android:51e22736c2a31555df6e57',
+    messagingSenderId: '441355804022',
+    projectId: 'griva-43cc0',
+    storageBucket: 'griva-43cc0.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyBk_ZWBlhPU3l1zscUtEkV2m1E5bbMI_sE',
-    appId: '1:687756687445:ios:f8a17b69b095cae13ebcdc',
-    messagingSenderId: '687756687445',
-    projectId: 'griva-app-18f0f',
-    storageBucket: 'griva-app-18f0f.firebasestorage.app',
+    apiKey: 'AIzaSyA3QM8LlkrgjVG-ape_xS1txE5VHBeBeio',
+    appId: '1:441355804022:web:cf68dd3a995ad3e8df6e57',
+    messagingSenderId: '441355804022',
+    projectId: 'griva-43cc0',
+    storageBucket: 'griva-43cc0.firebasestorage.app',
     iosBundleId: 'com.example.grivaPi',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyBk_ZWBlhPU3l1zscUtEkV2m1E5bbMI_sE',
-    appId: '1:687756687445:ios:f8a17b69b095cae13ebcdc',
-    messagingSenderId: '687756687445',
-    projectId: 'griva-app-18f0f',
-    storageBucket: 'griva-app-18f0f.firebasestorage.app',
+    apiKey: 'AIzaSyA3QM8LlkrgjVG-ape_xS1txE5VHBeBeio',
+    appId: '1:441355804022:web:cf68dd3a995ad3e8df6e57',
+    messagingSenderId: '441355804022',
+    projectId: 'griva-43cc0',
+    storageBucket: 'griva-43cc0.firebasestorage.app',
     iosBundleId: 'com.example.grivaPi',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyDzzqjNQNL4-Jgjq7D98Ns6sPkcZ0LkdSQ',
-    appId: '1:687756687445:web:2d5742fca10d21c23ebcdc',
-    messagingSenderId: '687756687445',
-    projectId: 'griva-app-18f0f',
-    authDomain: 'griva-app-18f0f.firebaseapp.com',
-    storageBucket: 'griva-app-18f0f.firebasestorage.app',
-    measurementId: 'G-6VM4DXCRJ2',
+    apiKey: 'AIzaSyA3QM8LlkrgjVG-ape_xS1txE5VHBeBeio',
+    appId: '1:441355804022:web:cf68dd3a995ad3e8df6e57',
+    messagingSenderId: '441355804022',
+    projectId: 'griva-43cc0',
+    authDomain: 'griva-43cc0.firebaseapp.com',
+    storageBucket: 'griva-43cc0.firebasestorage.app',
+    measurementId: 'G-SN1GN101RS',
   );
 }

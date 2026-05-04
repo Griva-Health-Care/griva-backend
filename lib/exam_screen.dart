@@ -12,9 +12,11 @@ import 'package:path/path.dart' as path;
 import 'dart:io';
 import 'gallery_screen.dart';
 import 'config/app_config.dart';
+import 'services/patient_service.dart';
 
 class PiCameraScreen extends StatefulWidget {
-  const PiCameraScreen({super.key});
+  final Patient? initialPatient;
+  const PiCameraScreen({super.key, this.initialPatient});
 
   @override
   State<PiCameraScreen> createState() => _PiCameraScreenState();
@@ -367,6 +369,7 @@ class _PiCameraScreenState extends State<PiCameraScreen>
               videos: capturedVideos,
               unlinkedImages: unlinkedImages,
               unlinkedVideos: unlinkedVideos,
+              initialPatient: widget.initialPatient,
               onDelete: (index) {
                 setState(() {
                   capturedImages.removeAt(index);

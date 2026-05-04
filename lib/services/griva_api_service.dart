@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// REST client for the Griva Node.js backend (port 5000).
 /// Authenticates every request with the Firebase ID token of the
@@ -21,11 +21,9 @@ class GrivaApiService {
   // ── Auth helpers ──────────────────────────────────────────────────────────
 
   Future<String> _token() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw Exception('Not signed in');
-    final token = await user.getIdToken(true);
-    if (token == null) throw Exception('Failed to get auth token');
-    return token;
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) throw Exception('Not signed in');
+    return session.accessToken;
   }
 
   Future<Map<String, String>> _headers() async => {
@@ -251,18 +249,18 @@ class GrivaApiException implements Exception {
 
 class GrivaReporter {
   final String id;
-  final String firebaseUid;
+  final String supabaseUid;
   final String? fullName;
   final String email;
   final String? hospital;
   final bool isAvailable;
 
   GrivaReporter.fromJson(Map<String, dynamic> j)
-      : id = j['id'] as String,
-        firebaseUid = j['firebaseUid'] as String,
-        fullName = j['fullName'] as String?,
-        email = j['email'] as String,
-        hospital = j['hospital'] as String?,
+      : id          = j['id'] as String,
+        supabaseUid = (j['supabaseUid'] ?? j['firebaseUid']) as String,
+        fullName    = j['fullName'] as String?,
+        email       = j['email'] as String,
+        hospital    = j['hospital'] as String?,
         isAvailable = j['isAvailable'] as bool;
 
   String get displayName => fullName ?? email;
