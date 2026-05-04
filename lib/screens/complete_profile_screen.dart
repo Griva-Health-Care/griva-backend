@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/app_router.dart';
 import '../services/profile_service.dart';
@@ -57,7 +57,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
     setState(() => _isSaving = true);
 
     try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final uid = Supabase.instance.client.auth.currentUser?.id;
       if (uid == null) throw Exception('Not signed in');
 
       final profile = DoctorProfile(
@@ -77,7 +77,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
         context,
         userEmail: widget.prefillEmail.isNotEmpty
             ? widget.prefillEmail
-            : (FirebaseAuth.instance.currentUser?.email ?? ''),
+            : (Supabase.instance.client.auth.currentUser?.email ?? ''),
       );
     } catch (e) {
       if (!mounted) return;

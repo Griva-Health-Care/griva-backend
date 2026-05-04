@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../screens/report_pdf_viewer_screen.dart';
 import '../../services/griva_api_service.dart';
@@ -61,9 +61,7 @@ class _DoctorCasesScreenState extends State<DoctorCasesScreen> {
 
   Future<void> _downloadPdf(GrivaCase c) async {
     try {
-      // Get a fresh Firebase ID token to authenticate the download.
-      final user  = FirebaseAuth.instance.currentUser;
-      final token = await user?.getIdToken();
+      final token = Supabase.instance.client.auth.currentSession?.accessToken;
       if (token == null) throw Exception('Not signed in');
 
       final url = GrivaApiService.instance.reportPdfUrl(c.id);

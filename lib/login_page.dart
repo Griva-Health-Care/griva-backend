@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/app_router.dart';
 import 'services/auth_service.dart';
 import 'services/fcm_service.dart';
@@ -116,7 +116,7 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
         }
 
         // Save mandatory profile to Firestore
-        final uid = FirebaseAuth.instance.currentUser?.uid;
+        final uid = Supabase.instance.client.auth.currentUser?.id;
         if (uid != null) {
           await ProfileService.instance.saveProfile(
             uid,

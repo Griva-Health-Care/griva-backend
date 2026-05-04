@@ -57,7 +57,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
     if (picked == null) return;
     try {
-      await GrivaApiService.instance.assignCase(c.id, picked.firebaseUid);
+      await GrivaApiService.instance.assignCase(c.id, picked.supabaseUid);
       await _load();
     } catch (e) {
       if (!mounted) return;

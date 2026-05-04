@@ -1,6 +1,6 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/fcm_service.dart';
 import '../services/griva_api_service.dart';
@@ -52,7 +52,7 @@ class _TeleAppState extends State<TeleApp> {
   }
 
   Future<void> _logout() async {
-    await FirebaseAuth.instance.signOut();
+    await Supabase.instance.client.auth.signOut();
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
