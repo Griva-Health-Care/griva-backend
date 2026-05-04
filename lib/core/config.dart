@@ -4,9 +4,9 @@ class Config {
   // ── Supabase ─────────────────────────────────────────────────────────────────
   // Pass these at build time — never hardcode defaults here:
   //   flutter run --dart-define=SUPABASE_URL=https://xxxx.supabase.co \
-  //               --dart-define=SUPABASE_ANON_KEY=eyJ...
+  //               --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
   static const String _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
-  static const String _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+  static const String _supabasePublishableKey = String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY');
 
   static String get supabaseUrl {
     assert(_supabaseUrl.isNotEmpty, 'SUPABASE_URL must be set via --dart-define');
@@ -14,8 +14,8 @@ class Config {
   }
 
   static String get supabaseAnonKey {
-    assert(_supabaseAnonKey.isNotEmpty, 'SUPABASE_ANON_KEY must be set via --dart-define');
-    return _supabaseAnonKey;
+    assert(_supabasePublishableKey.isNotEmpty, 'SUPABASE_PUBLISHABLE_KEY must be set via --dart-define');
+    return _supabasePublishableKey;
   }
 
   // ── Raspberry Pi hardware controller ─────────────────────────────────────────

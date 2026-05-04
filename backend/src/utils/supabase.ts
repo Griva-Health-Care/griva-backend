@@ -2,10 +2,10 @@ import { createClient } from '@supabase/supabase-js';
 import { createRemoteJWKSet, jwtVerify, JWTPayload } from 'jose';
 
 const supabaseUrl = process.env.SUPABASE_URL ?? '';
-const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+const serviceKey  = process.env.SUPABASE_SECRET_KEY ?? '';
 
 if (!supabaseUrl || !serviceKey) {
-  console.warn('[SUPABASE] SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set');
+  console.warn('[SUPABASE] SUPABASE_URL or SUPABASE_SECRET_KEY not set');
 }
 
 export const supabaseAdmin = createClient(supabaseUrl, serviceKey, {

@@ -45,3 +45,17 @@ app.*.map.json
 /android/app/release
 /android/key.properties
 **/key.properties
+# Environment & secrets — never commit these
+.env
+.env.local
+.env.*.local
+**/google-services.json
+**/GoogleService-Info.plist
+**/serviceAccountKey.json
+*.pem
+*.key
+
+# Flutter build define scripts (may contain --dart-define secrets)
+build.sh
+build.local.sh
+run.local.sh

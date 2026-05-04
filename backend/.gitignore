@@ -1,7 +1,20 @@
 node_modules/
 dist/
-# Keep environment variables out of version control
-.env
-serviceAccountKey.json
 
+# Environment & secrets — never commit these
+.env
+.env.local
+.env.*.local
+serviceAccountKey.json
+*.pem
+*.key
+
+# Prisma generated
 /generated/prisma
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
