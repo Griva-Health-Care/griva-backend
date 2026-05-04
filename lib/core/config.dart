@@ -2,19 +2,21 @@ import 'dart:io';
 
 class Config {
   // ── Supabase ─────────────────────────────────────────────────────────────────
-  /// Public URL of your Supabase project.
-  /// Set SUPABASE_URL at build time:
-  ///   flutter run --dart-define=SUPABASE_URL=https://xxxx.supabase.co
-  static const String supabaseUrl = String.fromEnvironment(
-    'SUPABASE_URL',
-    defaultValue: 'https://kivcxcdcvypnazpbuhey.supabase.co',
-  );
+  // Pass these at build time — never hardcode defaults here:
+  //   flutter run --dart-define=SUPABASE_URL=https://xxxx.supabase.co \
+  //               --dart-define=SUPABASE_ANON_KEY=eyJ...
+  static const String _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+  static const String _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
-  /// Supabase anon key (safe to embed in client apps).
-  static const String supabaseAnonKey = String.fromEnvironment(
-    'SUPABASE_ANON_KEY',
-    defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpdmN4Y2RjdnlwbmF6cGJ1aGV5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4NzA0OTcsImV4cCI6MjA5MzQ0NjQ5N30.vS43Nig7AZfTTEHsk8C9hLeMCULOQxSe89egvq-VTSs',
-  );
+  static String get supabaseUrl {
+    assert(_supabaseUrl.isNotEmpty, 'SUPABASE_URL must be set via --dart-define');
+    return _supabaseUrl;
+  }
+
+  static String get supabaseAnonKey {
+    assert(_supabaseAnonKey.isNotEmpty, 'SUPABASE_ANON_KEY must be set via --dart-define');
+    return _supabaseAnonKey;
+  }
 
   // ── Raspberry Pi hardware controller ─────────────────────────────────────────
   /// Set GRIVA_HOST at build time for physical device:
