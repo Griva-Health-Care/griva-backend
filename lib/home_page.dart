@@ -9,6 +9,8 @@ import 'services/patient_service.dart';
 import 'services/user_service.dart';
 import 'screens/patient_details_screen.dart';
 import 'screens/user_profile_screen.dart';
+import 'screens/library_screen.dart';
+import 'screens/settings_screen.dart';
 import 'login_page.dart';
 import 'services/network_service.dart';
 import 'widgets/centralized_footer.dart';
@@ -139,6 +141,26 @@ class _HomePageState extends State<HomePage> {
       context,
       MaterialPageRoute(builder: (context) => const PatientListScreen()),
     );
+  }
+
+  void _showLibrary() {
+    Navigator.pop(context); // close drawer
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const LibraryScreen()),
+    );
+  }
+
+  void _showSettings() {
+    Navigator.pop(context); // close drawer
+    if (widget.userEmail != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => SettingsScreen(userEmail: widget.userEmail!),
+        ),
+      );
+    }
   }
 
   void _showNotConnectedDialog() {
@@ -347,8 +369,9 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       drawer: CustomDrawer(
         onLogout: _logout,
-        onProfile: _showProfile,
         onPatientDatabase: _showPatientDatabase,
+        onLibrary: _showLibrary,
+        onSettings: _showSettings,
       ),
       appBar: CustomAppBar(
         infoIconKey: _infoIconKey,

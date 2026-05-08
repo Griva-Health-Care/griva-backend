@@ -8,14 +8,22 @@ import 'forms/vaginoscopy_form.dart';
 import 'forms/hra_form.dart';
 import 'forms/laser_therapy_form.dart';
 import 'forms/sexual_assault_form.dart';
+import 'dart:io';
+import 'services/auth_service.dart';
 import 'services/medical_report_service.dart';
 import 'services/patient_service.dart';
+import 'services/user_service.dart';
+import 'services/image_service.dart';
 import 'gallery_screen.dart';
 
 class DiagnosisPage extends StatefulWidget {
   final Patient patient;
   final List<Uint8List> images;
-  const DiagnosisPage({super.key, required this.patient, required this.images});
+  /// When true (default), images are saved to the patient's folder on report
+  /// generation. Set false when images are already persisted on disk (e.g.
+  /// loaded from PatientDetailsScreen) to avoid creating duplicates.
+  final bool saveImages;
+  const DiagnosisPage({super.key, required this.patient, required this.images, this.saveImages = true});
 
   @override
   State<DiagnosisPage> createState() => _DiagnosisPageState();
@@ -32,8 +40,10 @@ enum Procedure {
 }
 
 class _DiagnosisPageState extends State<DiagnosisPage> {
-  Procedure _selected = Procedure.colposcopy; // default form
+  Procedure _selected = Procedure.colposcopy;
   final ScrollController _pageScrollController = ScrollController();
+  final PatientService _patientService = PatientService();
+  bool _imagesSaved = false;
 
   // Clinical data controllers (matching ClinicalDataFormScreen keys)
   final TextEditingController _chiefComplaintController = TextEditingController();
@@ -85,9 +95,50 @@ class _DiagnosisPageState extends State<DiagnosisPage> {
     }
   }
 
-  Future<void> _onSave() async {
+  Future<void> _onSave({bool openAfter = false}) async {
     final scaffold = ScaffoldMessenger.of(context);
     try {
+      // Persist images to patient folder on first save (skip if already saved)
+      if (widget.saveImages && !_imagesSaved && widget.patient.id != null) {
+        for (final bytes in widget.images) {
+          try {
+            final imgPath = await ImageService.saveExaminationImage(
+              bytes,
+              widget.patient.id!,
+              {'source': 'diagnosis_report'},
+            );
+            await _patientService.addExaminationImage(
+              widget.patient.id!,
+              imgPath,
+              {'source': 'diagnosis_report'},
+            );
+          } catch (_) {
+            // Non-fatal: continue even if one image fails to save
+          }
+        }
+        _imagesSaved = true;
+      }
+
+      // Load custom header/footer images if the user has set them in settings.
+      Uint8List? customHeader;
+      Uint8List? customFooter;
+      try {
+        final email = await AuthService().getSessionEmail();
+        if (email != null) {
+          final user = await UserService().getUserByEmail(email);
+          if (user != null && user.useReportHeaderFooter) {
+            if (user.reportHeaderImage != null) {
+              final f = File(user.reportHeaderImage!);
+              if (await f.exists()) customHeader = await f.readAsBytes();
+            }
+            if (user.reportFooterImage != null) {
+              final f = File(user.reportFooterImage!);
+              if (await f.exists()) customFooter = await f.readAsBytes();
+            }
+          }
+        }
+      } catch (_) {}
+
       final filePath = await MedicalReportService.generateComprehensiveReport(
         patient: widget.patient,
         images: widget.images,
@@ -110,25 +161,33 @@ class _DiagnosisPageState extends State<DiagnosisPage> {
           'Staining Effect': _stainingEffectController.text,
           'Erythema': _erythemaController.text,
         },
+        customHeaderImage: customHeader,
+        customFooterImage: customFooter,
       );
 
       if (!mounted) return;
       if (filePath != null) {
-        scaffold.showSnackBar(
-          SnackBar(
-            content: const Text('Comprehensive report generated successfully!'),
-            action: SnackBarAction(
-              label: 'Open',
-              onPressed: () => MedicalReportService.openReport(filePath),
+        if (openAfter) {
+          await MedicalReportService.openReport(filePath);
+        } else {
+          scaffold.showSnackBar(
+            SnackBar(
+              content: const Text('Report generated successfully!'),
+              action: SnackBarAction(
+                label: 'Open',
+                onPressed: () => MedicalReportService.openReport(filePath),
+              ),
             ),
-          ),
-        );
-        Navigator.pop(context, filePath);
+          );
+          Navigator.pop(context, filePath);
+        }
       }
     } catch (e) {
-      scaffold.showSnackBar(
-        SnackBar(content: Text('Error creating report: $e')),
-      );
+      if (mounted) {
+        scaffold.showSnackBar(
+          SnackBar(content: Text('Error creating report: $e')),
+        );
+      }
     }
   }
 
@@ -154,9 +213,62 @@ class _DiagnosisPageState extends State<DiagnosisPage> {
     }
   }
 
+  List<ImageProvider> get _imageProviders =>
+      widget.images.map((b) => MemoryImage(b) as ImageProvider).toList();
+
+  void _removeImage(int idx) {
+    setState(() {
+      if (idx >= 0 && idx < widget.images.length) {
+        widget.images.removeAt(idx);
+      }
+    });
+  }
+
+  void _openImageFullScreen(ImageProvider provider) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Stack(
+          children: [
+            GestureDetector(
+              onTap: () => Navigator.of(context).pop(),
+              child: Container(color: Colors.black54),
+            ),
+            Center(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.all(12),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image(image: provider, fit: BoxFit.contain),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 24,
+              right: 24,
+              child: IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close, color: Colors.white, size: 32),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final bool showImageStrip = _selected == Procedure.colposcopy;
+    final List<ImageProvider> imageProviders = showImageStrip ? _imageProviders : const [];
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -167,79 +279,99 @@ class _DiagnosisPageState extends State<DiagnosisPage> {
             return Center(
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: maxContentWidth),
-                child: Scrollbar(
-                  controller: _pageScrollController,
-                  thumbVisibility: true,
-                  child: SingleChildScrollView(
-                    controller: _pageScrollController,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // ── Sticky top: app bar + image strip ──────────────────
+                    Row(
                       children: [
-                        Row(
-                          children: [
-                            const Expanded(child: _TopBar()),
-                            const SizedBox(width: 8),
-                            ElevatedButton.icon(
-                              onPressed: _addImagesFromGallery,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF7A45E5),
-                                foregroundColor: Colors.white,
-                              ),
-                              icon: const Icon(Icons.photo_library_outlined),
-                              label: const Text('Add Images'),
-                            ),
-                          ],
+                        const Expanded(child: _TopBar()),
+                        const SizedBox(width: 8),
+                        ElevatedButton.icon(
+                          onPressed: _addImagesFromGallery,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF7A45E5),
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: const Icon(Icons.photo_library_outlined),
+                          label: const Text('Add Images'),
                         ),
-                        const Divider(height: 1, thickness: 1, color: kHeaderDivider),
-                        const SizedBox(height: 32),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Text(
-                                    'Diagnosis',
-                                    style: theme.textTheme.headlineMedium?.copyWith(
-                                      color: const Color(0xFF7A45E5),
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.2,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  Row(children: [
-                                    TextButton.icon(
-                                      onPressed: () => Navigator.maybePop(context),
-                                      style: TextButton.styleFrom(foregroundColor: const Color(0xFF7A45E5)),
-                                      icon: const Icon(Icons.arrow_back),
-                                      label: const Text('Back'),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    ElevatedButton.icon(
-                                      onPressed: _onSave,
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF7A45E5),
-                                        foregroundColor: Colors.white,
+                      ],
+                    ),
+                    const Divider(height: 1, thickness: 1, color: kHeaderDivider),
+                    if (showImageStrip) ...[
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: RepaintBoundary(
+                          child: DiagnosisImagePreviewRow(
+                            images: imageProviders,
+                            canAdd: widget.images.length < 5,
+                            onAdd: _addImagesFromGallery,
+                            onRemove: _removeImage,
+                            onOpen: _openImageFullScreen,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Divider(height: 1, thickness: 1, color: kHeaderDivider),
+                    ],
+                    // ── Scrollable body ─────────────────────────────────────
+                    Expanded(
+                      child: Scrollbar(
+                        controller: _pageScrollController,
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          controller: _pageScrollController,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 24),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SizedBox(height: 24),
+                                Row(
+                                  children: [
+                                    Text(
+                                      'Diagnosis',
+                                      style: theme.textTheme.headlineMedium?.copyWith(
+                                        color: const Color(0xFF7A45E5),
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 0.2,
                                       ),
-                                      icon: const Icon(Icons.save),
-                                      label: const Text('Save'),
                                     ),
-                                  ]),
-                                ],
-                              ),
-                              const SizedBox(height: 28),
-                              LayoutBuilder(
-                                builder: (context, c) {
-                                  final bool wide = c.maxWidth >= 720;
-                                  final label = Text(
-                                    'Select the Procedure:',
-                                    style: theme.textTheme.titleLarge?.copyWith(
-                                      color: Colors.black,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  );
-                                  final dropdownField = DropdownButtonFormField<Procedure>(
+                                    const Spacer(),
+                                    Row(children: [
+                                      TextButton.icon(
+                                        onPressed: () => Navigator.maybePop(context),
+                                        style: TextButton.styleFrom(foregroundColor: const Color(0xFF7A45E5)),
+                                        icon: const Icon(Icons.arrow_back),
+                                        label: const Text('Back'),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      ElevatedButton.icon(
+                                        onPressed: _onSave,
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFF7A45E5),
+                                          foregroundColor: Colors.white,
+                                        ),
+                                        icon: const Icon(Icons.save),
+                                        label: const Text('Save'),
+                                      ),
+                                    ]),
+                                  ],
+                                ),
+                                const SizedBox(height: 28),
+                                LayoutBuilder(
+                                  builder: (context, c) {
+                                    final bool wide = c.maxWidth >= 720;
+                                    final label = Text(
+                                      'Select the Procedure:',
+                                      style: theme.textTheme.titleLarge?.copyWith(
+                                        color: Colors.black,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    );
+                                    final dropdownField = DropdownButtonFormField<Procedure>(
                                       value: _selected,
                                       items: const [
                                         DropdownMenuItem(value: Procedure.colposcopy, child: Text('Colposcopy')),
@@ -256,34 +388,57 @@ class _DiagnosisPageState extends State<DiagnosisPage> {
                                         isDense: true,
                                       ),
                                     );
-                                  if (wide) {
-                                    return Row(children: [
-                                      Flexible(flex: 0, child: label),
-                                      const SizedBox(width: 16),
-                                      Expanded(child: dropdownField),
-                                    ]);
-                                  }
-                                  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [label, const SizedBox(height: 8), dropdownField]);
-                                },
-                              ),
-                              const SizedBox(height: 24),
-                              _clinicalDataSection(theme),
-                              const SizedBox(height: 24),
-                              _buildFormFor(_selected),
-                            ],
+                                    if (wide) {
+                                      return Row(children: [
+                                        Flexible(flex: 0, child: label),
+                                        const SizedBox(width: 16),
+                                        Expanded(child: dropdownField),
+                                      ]);
+                                    }
+                                    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [label, const SizedBox(height: 8), dropdownField]);
+                                  },
+                                ),
+                                const SizedBox(height: 24),
+                                _clinicalDataSection(theme),
+                                const SizedBox(height: 24),
+                                _buildFormFor(_selected),
+                                const SizedBox(height: 24),
+                                // ── Report header / footer toggles ──────────
+                                Container(
+                                  decoration: BoxDecoration(
+                                    border: Border.all(color: const Color(0xFFE0D6FB)),
+                                    borderRadius: BorderRadius.circular(10),
+                                    color: const Color(0xFFF8F5FF),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Report Options',
+                                        style: theme.textTheme.labelLarge?.copyWith(
+                                          color: const Color(0xFF7A45E5),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 12, top: 24),
+                                  child: Text(
+                                    '© 2025 Griva. All rights reserved.',
+                                    textAlign: TextAlign.center,
+                                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.black54),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12, top: 24),
-                          child: Text(
-                            '© 2025 Griva. All rights reserved.',
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.bodySmall?.copyWith(color: Colors.black54),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             );
@@ -320,6 +475,8 @@ class _DiagnosisPageState extends State<DiagnosisPage> {
     switch (p) {
       case Procedure.colposcopy:
         return ColposcopyForm(
+          showImagePreview: false,
+          onPreviewReport: () => _onSave(openAfter: true),
           initialPatientName: widget.patient.patientName,
           initialPatientId: widget.patient.patientId,
           initialDob: widget.patient.dateOfBirth,
@@ -334,24 +491,16 @@ class _DiagnosisPageState extends State<DiagnosisPage> {
             });
           },
           onChiefComplaintChanged: (value) {
-            setState(() {
-              _chiefComplaintController.text = value;
-            });
+            _chiefComplaintController.text = value;
           },
           onFindingsChanged: (value) {
-            setState(() {
-              _colposcopyFindingsController.text = value;
-            });
+            _colposcopyFindingsController.text = value;
           },
           onFinalImpressionChanged: (value) {
-            setState(() {
-              _finalImpressionController.text = value;
-            });
+            _finalImpressionController.text = value;
           },
           onRemarksChanged: (value) {
-            setState(() {
-              _remarksController.text = value;
-            });
+            _remarksController.text = value;
           },
         );
       case Procedure.vulvoscopy:

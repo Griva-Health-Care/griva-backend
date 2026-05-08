@@ -3157,6 +3157,45 @@ class $UsersTable extends Users with TableInfo<$UsersTable, UserRow> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _reportHeaderImageMeta = const VerificationMeta(
+    'reportHeaderImage',
+  );
+  @override
+  late final GeneratedColumn<String> reportHeaderImage =
+      GeneratedColumn<String>(
+        'report_header_image',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _reportFooterImageMeta = const VerificationMeta(
+    'reportFooterImage',
+  );
+  @override
+  late final GeneratedColumn<String> reportFooterImage =
+      GeneratedColumn<String>(
+        'report_footer_image',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _useReportHeaderFooterMeta =
+      const VerificationMeta('useReportHeaderFooter');
+  @override
+  late final GeneratedColumn<bool> useReportHeaderFooter =
+      GeneratedColumn<bool>(
+        'use_report_header_footer',
+        aliasedName,
+        false,
+        type: DriftSqlType.bool,
+        requiredDuringInsert: false,
+        defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("use_report_header_footer" IN (0, 1))',
+        ),
+        defaultValue: const Constant(false),
+      );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -3174,6 +3213,9 @@ class $UsersTable extends Users with TableInfo<$UsersTable, UserRow> {
     phoneNumber,
     specialization,
     department,
+    reportHeaderImage,
+    reportFooterImage,
+    useReportHeaderFooter,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -3296,6 +3338,33 @@ class $UsersTable extends Users with TableInfo<$UsersTable, UserRow> {
         department.isAcceptableOrUnknown(data['department']!, _departmentMeta),
       );
     }
+    if (data.containsKey('report_header_image')) {
+      context.handle(
+        _reportHeaderImageMeta,
+        reportHeaderImage.isAcceptableOrUnknown(
+          data['report_header_image']!,
+          _reportHeaderImageMeta,
+        ),
+      );
+    }
+    if (data.containsKey('report_footer_image')) {
+      context.handle(
+        _reportFooterImageMeta,
+        reportFooterImage.isAcceptableOrUnknown(
+          data['report_footer_image']!,
+          _reportFooterImageMeta,
+        ),
+      );
+    }
+    if (data.containsKey('use_report_header_footer')) {
+      context.handle(
+        _useReportHeaderFooterMeta,
+        useReportHeaderFooter.isAcceptableOrUnknown(
+          data['use_report_header_footer']!,
+          _useReportHeaderFooterMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -3373,6 +3442,19 @@ class $UsersTable extends Users with TableInfo<$UsersTable, UserRow> {
         DriftSqlType.string,
         data['${effectivePrefix}department'],
       ),
+      reportHeaderImage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}report_header_image'],
+      ),
+      reportFooterImage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}report_footer_image'],
+      ),
+      useReportHeaderFooter:
+          attachedDatabase.typeMapping.read(
+            DriftSqlType.bool,
+            data['${effectivePrefix}use_report_header_footer'],
+          )!,
     );
   }
 
@@ -3398,6 +3480,9 @@ class UserRow extends DataClass implements Insertable<UserRow> {
   final String? phoneNumber;
   final String? specialization;
   final String? department;
+  final String? reportHeaderImage;
+  final String? reportFooterImage;
+  final bool useReportHeaderFooter;
   const UserRow({
     required this.id,
     required this.fullName,
@@ -3414,6 +3499,9 @@ class UserRow extends DataClass implements Insertable<UserRow> {
     this.phoneNumber,
     this.specialization,
     this.department,
+    this.reportHeaderImage,
+    this.reportFooterImage,
+    required this.useReportHeaderFooter,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3447,6 +3535,13 @@ class UserRow extends DataClass implements Insertable<UserRow> {
     if (!nullToAbsent || department != null) {
       map['department'] = Variable<String>(department);
     }
+    if (!nullToAbsent || reportHeaderImage != null) {
+      map['report_header_image'] = Variable<String>(reportHeaderImage);
+    }
+    if (!nullToAbsent || reportFooterImage != null) {
+      map['report_footer_image'] = Variable<String>(reportFooterImage);
+    }
+    map['use_report_header_footer'] = Variable<bool>(useReportHeaderFooter);
     return map;
   }
 
@@ -3488,6 +3583,15 @@ class UserRow extends DataClass implements Insertable<UserRow> {
           department == null && nullToAbsent
               ? const Value.absent()
               : Value(department),
+      reportHeaderImage:
+          reportHeaderImage == null && nullToAbsent
+              ? const Value.absent()
+              : Value(reportHeaderImage),
+      reportFooterImage:
+          reportFooterImage == null && nullToAbsent
+              ? const Value.absent()
+              : Value(reportFooterImage),
+      useReportHeaderFooter: Value(useReportHeaderFooter),
     );
   }
 
@@ -3512,6 +3616,15 @@ class UserRow extends DataClass implements Insertable<UserRow> {
       phoneNumber: serializer.fromJson<String?>(json['phoneNumber']),
       specialization: serializer.fromJson<String?>(json['specialization']),
       department: serializer.fromJson<String?>(json['department']),
+      reportHeaderImage: serializer.fromJson<String?>(
+        json['reportHeaderImage'],
+      ),
+      reportFooterImage: serializer.fromJson<String?>(
+        json['reportFooterImage'],
+      ),
+      useReportHeaderFooter: serializer.fromJson<bool>(
+        json['useReportHeaderFooter'],
+      ),
     );
   }
   @override
@@ -3533,6 +3646,9 @@ class UserRow extends DataClass implements Insertable<UserRow> {
       'phoneNumber': serializer.toJson<String?>(phoneNumber),
       'specialization': serializer.toJson<String?>(specialization),
       'department': serializer.toJson<String?>(department),
+      'reportHeaderImage': serializer.toJson<String?>(reportHeaderImage),
+      'reportFooterImage': serializer.toJson<String?>(reportFooterImage),
+      'useReportHeaderFooter': serializer.toJson<bool>(useReportHeaderFooter),
     };
   }
 
@@ -3552,6 +3668,9 @@ class UserRow extends DataClass implements Insertable<UserRow> {
     Value<String?> phoneNumber = const Value.absent(),
     Value<String?> specialization = const Value.absent(),
     Value<String?> department = const Value.absent(),
+    Value<String?> reportHeaderImage = const Value.absent(),
+    Value<String?> reportFooterImage = const Value.absent(),
+    bool? useReportHeaderFooter,
   }) => UserRow(
     id: id ?? this.id,
     fullName: fullName ?? this.fullName,
@@ -3569,6 +3688,15 @@ class UserRow extends DataClass implements Insertable<UserRow> {
     specialization:
         specialization.present ? specialization.value : this.specialization,
     department: department.present ? department.value : this.department,
+    reportHeaderImage:
+        reportHeaderImage.present
+            ? reportHeaderImage.value
+            : this.reportHeaderImage,
+    reportFooterImage:
+        reportFooterImage.present
+            ? reportFooterImage.value
+            : this.reportFooterImage,
+    useReportHeaderFooter: useReportHeaderFooter ?? this.useReportHeaderFooter,
   );
   UserRow copyWithCompanion(UsersCompanion data) {
     return UserRow(
@@ -3598,6 +3726,18 @@ class UserRow extends DataClass implements Insertable<UserRow> {
               : this.specialization,
       department:
           data.department.present ? data.department.value : this.department,
+      reportHeaderImage:
+          data.reportHeaderImage.present
+              ? data.reportHeaderImage.value
+              : this.reportHeaderImage,
+      reportFooterImage:
+          data.reportFooterImage.present
+              ? data.reportFooterImage.value
+              : this.reportFooterImage,
+      useReportHeaderFooter:
+          data.useReportHeaderFooter.present
+              ? data.useReportHeaderFooter.value
+              : this.useReportHeaderFooter,
     );
   }
 
@@ -3618,7 +3758,10 @@ class UserRow extends DataClass implements Insertable<UserRow> {
           ..write('profileImage: $profileImage, ')
           ..write('phoneNumber: $phoneNumber, ')
           ..write('specialization: $specialization, ')
-          ..write('department: $department')
+          ..write('department: $department, ')
+          ..write('reportHeaderImage: $reportHeaderImage, ')
+          ..write('reportFooterImage: $reportFooterImage, ')
+          ..write('useReportHeaderFooter: $useReportHeaderFooter')
           ..write(')'))
         .toString();
   }
@@ -3640,6 +3783,9 @@ class UserRow extends DataClass implements Insertable<UserRow> {
     phoneNumber,
     specialization,
     department,
+    reportHeaderImage,
+    reportFooterImage,
+    useReportHeaderFooter,
   );
   @override
   bool operator ==(Object other) =>
@@ -3659,7 +3805,10 @@ class UserRow extends DataClass implements Insertable<UserRow> {
           other.profileImage == this.profileImage &&
           other.phoneNumber == this.phoneNumber &&
           other.specialization == this.specialization &&
-          other.department == this.department);
+          other.department == this.department &&
+          other.reportHeaderImage == this.reportHeaderImage &&
+          other.reportFooterImage == this.reportFooterImage &&
+          other.useReportHeaderFooter == this.useReportHeaderFooter);
 }
 
 class UsersCompanion extends UpdateCompanion<UserRow> {
@@ -3678,6 +3827,9 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
   final Value<String?> phoneNumber;
   final Value<String?> specialization;
   final Value<String?> department;
+  final Value<String?> reportHeaderImage;
+  final Value<String?> reportFooterImage;
+  final Value<bool> useReportHeaderFooter;
   const UsersCompanion({
     this.id = const Value.absent(),
     this.fullName = const Value.absent(),
@@ -3694,6 +3846,9 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
     this.phoneNumber = const Value.absent(),
     this.specialization = const Value.absent(),
     this.department = const Value.absent(),
+    this.reportHeaderImage = const Value.absent(),
+    this.reportFooterImage = const Value.absent(),
+    this.useReportHeaderFooter = const Value.absent(),
   });
   UsersCompanion.insert({
     this.id = const Value.absent(),
@@ -3711,6 +3866,9 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
     this.phoneNumber = const Value.absent(),
     this.specialization = const Value.absent(),
     this.department = const Value.absent(),
+    this.reportHeaderImage = const Value.absent(),
+    this.reportFooterImage = const Value.absent(),
+    this.useReportHeaderFooter = const Value.absent(),
   }) : fullName = Value(fullName),
        email = Value(email),
        password = Value(password),
@@ -3732,6 +3890,9 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
     Expression<String>? phoneNumber,
     Expression<String>? specialization,
     Expression<String>? department,
+    Expression<String>? reportHeaderImage,
+    Expression<String>? reportFooterImage,
+    Expression<bool>? useReportHeaderFooter,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -3749,6 +3910,10 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
       if (phoneNumber != null) 'phone_number': phoneNumber,
       if (specialization != null) 'specialization': specialization,
       if (department != null) 'department': department,
+      if (reportHeaderImage != null) 'report_header_image': reportHeaderImage,
+      if (reportFooterImage != null) 'report_footer_image': reportFooterImage,
+      if (useReportHeaderFooter != null)
+        'use_report_header_footer': useReportHeaderFooter,
     });
   }
 
@@ -3768,6 +3933,9 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
     Value<String?>? phoneNumber,
     Value<String?>? specialization,
     Value<String?>? department,
+    Value<String?>? reportHeaderImage,
+    Value<String?>? reportFooterImage,
+    Value<bool>? useReportHeaderFooter,
   }) {
     return UsersCompanion(
       id: id ?? this.id,
@@ -3785,6 +3953,10 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
       phoneNumber: phoneNumber ?? this.phoneNumber,
       specialization: specialization ?? this.specialization,
       department: department ?? this.department,
+      reportHeaderImage: reportHeaderImage ?? this.reportHeaderImage,
+      reportFooterImage: reportFooterImage ?? this.reportFooterImage,
+      useReportHeaderFooter:
+          useReportHeaderFooter ?? this.useReportHeaderFooter,
     );
   }
 
@@ -3836,6 +4008,17 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
     if (department.present) {
       map['department'] = Variable<String>(department.value);
     }
+    if (reportHeaderImage.present) {
+      map['report_header_image'] = Variable<String>(reportHeaderImage.value);
+    }
+    if (reportFooterImage.present) {
+      map['report_footer_image'] = Variable<String>(reportFooterImage.value);
+    }
+    if (useReportHeaderFooter.present) {
+      map['use_report_header_footer'] = Variable<bool>(
+        useReportHeaderFooter.value,
+      );
+    }
     return map;
   }
 
@@ -3856,7 +4039,10 @@ class UsersCompanion extends UpdateCompanion<UserRow> {
           ..write('profileImage: $profileImage, ')
           ..write('phoneNumber: $phoneNumber, ')
           ..write('specialization: $specialization, ')
-          ..write('department: $department')
+          ..write('department: $department, ')
+          ..write('reportHeaderImage: $reportHeaderImage, ')
+          ..write('reportFooterImage: $reportFooterImage, ')
+          ..write('useReportHeaderFooter: $useReportHeaderFooter')
           ..write(')'))
         .toString();
   }
@@ -7644,6 +7830,9 @@ typedef $$UsersTableCreateCompanionBuilder =
       Value<String?> phoneNumber,
       Value<String?> specialization,
       Value<String?> department,
+      Value<String?> reportHeaderImage,
+      Value<String?> reportFooterImage,
+      Value<bool> useReportHeaderFooter,
     });
 typedef $$UsersTableUpdateCompanionBuilder =
     UsersCompanion Function({
@@ -7662,6 +7851,9 @@ typedef $$UsersTableUpdateCompanionBuilder =
       Value<String?> phoneNumber,
       Value<String?> specialization,
       Value<String?> department,
+      Value<String?> reportHeaderImage,
+      Value<String?> reportFooterImage,
+      Value<bool> useReportHeaderFooter,
     });
 
 class $$UsersTableFilterComposer extends Composer<_$AppDatabase, $UsersTable> {
@@ -7744,6 +7936,21 @@ class $$UsersTableFilterComposer extends Composer<_$AppDatabase, $UsersTable> {
 
   ColumnFilters<String> get department => $composableBuilder(
     column: $table.department,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get reportHeaderImage => $composableBuilder(
+    column: $table.reportHeaderImage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get reportFooterImage => $composableBuilder(
+    column: $table.reportFooterImage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get useReportHeaderFooter => $composableBuilder(
+    column: $table.useReportHeaderFooter,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -7831,6 +8038,21 @@ class $$UsersTableOrderingComposer
     column: $table.department,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get reportHeaderImage => $composableBuilder(
+    column: $table.reportHeaderImage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get reportFooterImage => $composableBuilder(
+    column: $table.reportFooterImage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get useReportHeaderFooter => $composableBuilder(
+    column: $table.useReportHeaderFooter,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$UsersTableAnnotationComposer
@@ -7896,6 +8118,21 @@ class $$UsersTableAnnotationComposer
     column: $table.department,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get reportHeaderImage => $composableBuilder(
+    column: $table.reportHeaderImage,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get reportFooterImage => $composableBuilder(
+    column: $table.reportFooterImage,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get useReportHeaderFooter => $composableBuilder(
+    column: $table.useReportHeaderFooter,
+    builder: (column) => column,
+  );
 }
 
 class $$UsersTableTableManager
@@ -7941,6 +8178,9 @@ class $$UsersTableTableManager
                 Value<String?> phoneNumber = const Value.absent(),
                 Value<String?> specialization = const Value.absent(),
                 Value<String?> department = const Value.absent(),
+                Value<String?> reportHeaderImage = const Value.absent(),
+                Value<String?> reportFooterImage = const Value.absent(),
+                Value<bool> useReportHeaderFooter = const Value.absent(),
               }) => UsersCompanion(
                 id: id,
                 fullName: fullName,
@@ -7957,6 +8197,9 @@ class $$UsersTableTableManager
                 phoneNumber: phoneNumber,
                 specialization: specialization,
                 department: department,
+                reportHeaderImage: reportHeaderImage,
+                reportFooterImage: reportFooterImage,
+                useReportHeaderFooter: useReportHeaderFooter,
               ),
           createCompanionCallback:
               ({
@@ -7975,6 +8218,9 @@ class $$UsersTableTableManager
                 Value<String?> phoneNumber = const Value.absent(),
                 Value<String?> specialization = const Value.absent(),
                 Value<String?> department = const Value.absent(),
+                Value<String?> reportHeaderImage = const Value.absent(),
+                Value<String?> reportFooterImage = const Value.absent(),
+                Value<bool> useReportHeaderFooter = const Value.absent(),
               }) => UsersCompanion.insert(
                 id: id,
                 fullName: fullName,
@@ -7991,6 +8237,9 @@ class $$UsersTableTableManager
                 phoneNumber: phoneNumber,
                 specialization: specialization,
                 department: department,
+                reportHeaderImage: reportHeaderImage,
+                reportFooterImage: reportFooterImage,
+                useReportHeaderFooter: useReportHeaderFooter,
               ),
           withReferenceMapper:
               (p0) =>

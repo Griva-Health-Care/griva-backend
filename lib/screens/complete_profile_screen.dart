@@ -1,5 +1,6 @@
+import '../../cloud/cloud_registry.dart';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 
 import '../core/app_router.dart';
 import '../services/profile_service.dart';
@@ -26,11 +27,12 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
   final _formKey = GlobalKey<FormState>();
 
   late final TextEditingController _nameCtrl;
-  final _phoneCtrl        = TextEditingController();
-  final _hospitalCtrl     = TextEditingController();
-  final _licenseCtrl      = TextEditingController();
-  final _cityCtrl         = TextEditingController();
-  final _stateCtrl        = TextEditingController();
+  final _phoneCtrl       = TextEditingController();
+  final _hospitalCtrl    = TextEditingController();
+  final _licenseCtrl     = TextEditingController();
+  final _cityCtrl        = TextEditingController();
+  final _stateCtrl       = TextEditingController();
+  final _colposcopeCtrl  = TextEditingController();
 
   String _accountType = 'doctor';
   bool   _isSaving    = false;
@@ -49,6 +51,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
     _licenseCtrl.dispose();
     _cityCtrl.dispose();
     _stateCtrl.dispose();
+    _colposcopeCtrl.dispose();
     super.dispose();
   }
 
@@ -57,17 +60,18 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
     setState(() => _isSaving = true);
 
     try {
-      final uid = Supabase.instance.client.auth.currentUser?.id;
+      final uid = CloudRegistry.instance.auth.currentUserId;
       if (uid == null) throw Exception('Not signed in');
 
       final profile = DoctorProfile(
-        fullName:      _nameCtrl.text.trim(),
-        phone:         _phoneCtrl.text.trim(),
-        hospital:      _hospitalCtrl.text.trim(),
-        accountType:   _accountType,
-        licenseNumber: _licenseCtrl.text.trim(),
-        city:          _cityCtrl.text.trim(),
-        state:         _stateCtrl.text.trim(),
+        fullName:           _nameCtrl.text.trim(),
+        phone:              _phoneCtrl.text.trim(),
+        hospital:           _hospitalCtrl.text.trim(),
+        accountType:        _accountType,
+        licenseNumber:      _licenseCtrl.text.trim(),
+        city:               _cityCtrl.text.trim(),
+        state:              _stateCtrl.text.trim(),
+        colposcopeSerialNo: _colposcopeCtrl.text.trim(),
       );
 
       await ProfileService.instance.saveProfile(uid, profile);
@@ -77,7 +81,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
         context,
         userEmail: widget.prefillEmail.isNotEmpty
             ? widget.prefillEmail
-            : (Supabase.instance.client.auth.currentUser?.email ?? ''),
+            : (CloudRegistry.instance.auth.currentUserEmail ?? ''),
       );
     } catch (e) {
       if (!mounted) return;
@@ -107,7 +111,8 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const Text(
-                    'Please fill in the details below to continue.\nAll fields are required.',
+                    'Please fill in the details below to continue.\n'
+                    'Fields marked optional may be left blank.',
                     style: TextStyle(color: Colors.grey),
                   ),
                   const SizedBox(height: 24),
@@ -160,25 +165,29 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
 
                   _field(
                     controller: _licenseCtrl,
-                    label: 'Medical Registration / License Number',
+                    label: 'Medical Registration / License Number (optional)',
                     icon: Icons.verified,
-                    validator: _required('License number'),
                   ),
                   const SizedBox(height: 16),
 
                   _field(
                     controller: _cityCtrl,
-                    label: 'City',
+                    label: 'City (optional)',
                     icon: Icons.location_city,
-                    validator: _required('City'),
                   ),
                   const SizedBox(height: 16),
 
                   _field(
                     controller: _stateCtrl,
-                    label: 'State',
+                    label: 'State (optional)',
                     icon: Icons.map,
-                    validator: _required('State'),
+                  ),
+                  const SizedBox(height: 16),
+
+                  _field(
+                    controller: _colposcopeCtrl,
+                    label: 'Colposcope Serial Number (optional)',
+                    icon: Icons.camera_alt_outlined,
                   ),
                   const SizedBox(height: 32),
 

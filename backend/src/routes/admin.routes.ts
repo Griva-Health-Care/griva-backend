@@ -20,7 +20,9 @@ router.get('/users', ...adminOnly, async (req, res) => {
       },
       select: {
         id: true, email: true, fullName: true, role: true,
-        hospital: true, isActive: true, createdAt: true, updatedAt: true,
+        hospital: true, phone: true, licenseNumber: true,
+        city: true, state: true, colposcopeSerialNo: true,
+        isActive: true, createdAt: true, updatedAt: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -84,7 +86,12 @@ router.get('/overview', ...adminOnly, async (_req, res) => {
   try {
     const users = await prisma.user.findMany({
       where:   { role: { in: ['doctor', 'diagnostic'] } },
-      select:  { id: true, fullName: true, email: true, role: true, hospital: true, supabaseUid: true, createdAt: true },
+      select:  {
+        id: true, fullName: true, email: true, role: true,
+        hospital: true, phone: true, licenseNumber: true,
+        city: true, state: true, colposcopeSerialNo: true,
+        supabaseUid: true, createdAt: true,
+      },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -131,20 +138,21 @@ router.get('/overview', ...adminOnly, async (_req, res) => {
         ? (teleCountMap.get(u.id) ?? 0)
         : (reportCountMap.get(u.id) ?? 0);
 
+      // Prefer User table fields (synced on every PUT /profile); fall back to
+      // DoctorProfile for rows created before the User sync was added.
       return {
-        name:               profile?.['fullName']           ?? u.fullName ?? u.email,
+        name:               u.fullName              ?? profile?.['fullName']           ?? u.email,
         email:              u.email,
-        role:               u.role,
-        phone:              profile?.['phone']              ?? null,
-        hospital:           profile?.['hospital']           ?? u.hospital ?? null,
-        licenseNumber:      profile?.['licenseNumber']      ?? null,
-        colposcopeSerialNo: profile?.['colposcopeSerialNo'] ?? null,
-        city:               profile?.['city']               ?? null,
-        state:              profile?.['state']              ?? null,
-        accountType:        profile?.['accountType']        ?? u.role,
+        role:               u.role                  || profile?.['role']               || 'doctor',
+        phone:              u.phone                 ?? profile?.['phone']              ?? null,
+        hospital:           u.hospital              ?? profile?.['hospital']           ?? null,
+        licenseNumber:      u.licenseNumber         ?? profile?.['licenseNumber']      ?? null,
+        colposcopeSerialNo: u.colposcopeSerialNo    ?? profile?.['colposcopeSerialNo'] ?? null,
+        city:               u.city                  ?? profile?.['city']               ?? null,
+        state:              u.state                 ?? profile?.['state']              ?? null,
         patientCount,
         reportCount,
-        joinedAt:           profile?.['createdAt']          ?? u.createdAt ?? null,
+        joinedAt:           u.createdAt,
       };
     });
 

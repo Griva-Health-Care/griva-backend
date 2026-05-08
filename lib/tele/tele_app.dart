@@ -1,6 +1,7 @@
+import '../cloud/cloud_registry.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 
 import '../services/fcm_service.dart';
 import '../services/griva_api_service.dart';
@@ -52,7 +53,7 @@ class _TeleAppState extends State<TeleApp> {
   }
 
   Future<void> _logout() async {
-    await Supabase.instance.client.auth.signOut();
+    await CloudRegistry.instance.auth.signOut();
     if (!mounted) return;
     Navigator.pushReplacement(
       context,

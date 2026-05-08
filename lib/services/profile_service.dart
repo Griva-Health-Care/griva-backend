@@ -1,17 +1,14 @@
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
-/// Manages the mandatory doctor/diagnostic-center profile stored in Supabase
-/// Postgres.
+import '../cloud/cloud_registry.dart';
+
+/// Manages the mandatory doctor/diagnostic-center profile stored in the cloud
+/// database.
 ///
-/// Table: node_app.doctor_profiles (uid PK = Supabase user UUID)
-///
-/// This replaces the previous Firestore `doctor_profiles/{uid}` collection.
+/// Table: doctor_profiles (uid PK = auth provider user UUID)
 class ProfileService {
   ProfileService._();
   static final ProfileService instance = ProfileService._();
-
-  SupabaseClient get _db => Supabase.instance.client;
 
   /// Save (or merge) the profile for [uid].
   Future<void> saveProfile(String uid, DoctorProfile profile) async {
@@ -19,7 +16,11 @@ class ProfileService {
     data['uid']       = uid;
     data['updatedAt'] = DateTime.now().toIso8601String();
 
-    await _db.from('doctor_profiles').upsert(data, onConflict: 'uid');
+    await CloudRegistry.instance.database.upsert(
+      'doctor_profiles',
+      data,
+      onConflict: 'uid',
+    );
     debugPrint('[PROFILE] Saved profile for $uid');
   }
 
@@ -27,11 +28,10 @@ class ProfileService {
   /// or null if the user still needs to complete their profile.
   Future<DoctorProfile?> getProfile(String uid) async {
     try {
-      final row = await _db
-          .from('doctor_profiles')
-          .select()
-          .eq('uid', uid)
-          .maybeSingle();
+      final row = await CloudRegistry.instance.database.selectSingle(
+        'doctor_profiles',
+        eq: {'uid': uid},
+      );
       if (row == null) return null;
       final profile = DoctorProfile.fromMap(row);
       return profile.isComplete ? profile : null;
@@ -52,7 +52,7 @@ class DoctorProfile {
   final String fullName;
   final String phone;
   final String hospital;
-  final String accountType;
+  final String role;
   final String licenseNumber;
   final String city;
   final String state;
@@ -62,29 +62,33 @@ class DoctorProfile {
     required this.fullName,
     required this.phone,
     required this.hospital,
-    required this.accountType,
+    required this.role,
     required this.licenseNumber,
     required this.city,
     required this.state,
     this.colposcopeSerialNo = '',
   });
 
+  // licenseNumber, city, state, colposcopeSerialNo are optional — not required here
   bool get isComplete =>
       fullName.isNotEmpty &&
       phone.isNotEmpty &&
       hospital.isNotEmpty &&
-      accountType.isNotEmpty &&
-      licenseNumber.isNotEmpty &&
-      city.isNotEmpty &&
-      state.isNotEmpty;
+      role.isNotEmpty;
+
+  static String _normalizeRole(String v) =>
+      v == 'diagnostic_center' ? 'diagnostic' : v;
 
   factory DoctorProfile.fromMap(Map<String, dynamic> map) => DoctorProfile(
         fullName:           (map['fullName']           as String?) ??
                             (map['full_name']          as String?) ?? '',
         phone:              (map['phone']              as String?) ?? '',
         hospital:           (map['hospital']           as String?) ?? '',
-        accountType:        (map['accountType']        as String?) ??
-                            (map['account_type']       as String?) ?? '',
+        // Normalize legacy 'diagnostic_center' → 'diagnostic' and accept old key names
+        role: _normalizeRole(
+                (map['role']         as String?) ??
+                (map['accountType']  as String?) ??
+                (map['account_type'] as String?) ?? ''),
         licenseNumber:      (map['licenseNumber']      as String?) ??
                             (map['license_number']     as String?) ?? '',
         city:               (map['city']               as String?) ?? '',
@@ -97,7 +101,7 @@ class DoctorProfile {
         'fullName':           fullName,
         'phone':              phone,
         'hospital':           hospital,
-        'accountType':        accountType,
+        'role':        role,
         'licenseNumber':      licenseNumber,
         'city':               city,
         'state':              state,

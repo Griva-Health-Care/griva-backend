@@ -1132,12 +1132,6 @@ class _GalleryScreenState extends State<GalleryScreen> {
             const SnackBar(content: Text('Logout clicked')),
           );
         },
-        onProfile: () {
-          // TODO: Implement profile logic
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Profile clicked')),
-          );
-        },
       ),
       appBar: CustomAppBar(
         userEmail: null, // Pass user email if available

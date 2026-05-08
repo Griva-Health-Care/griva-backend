@@ -1,124 +1,79 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../cloud/cloud_registry.dart';
 import '../../services/patient_service.dart' show Patient;
 import '../i_patient_repository.dart';
 
-/// Firestore-backed implementation of [IPatientRepository].
+/// Cloud-backed implementation of [IPatientRepository].
 ///
-/// Collection layout:
-///   doctors/{doctorId}/patients/{patientUuid}
+/// Delegates all operations to [CloudRegistry.instance.database].
+/// To migrate to a different cloud database, swap the [IDatabaseProvider]
+/// in [CloudRegistry] — this file does not need to change.
 ///
-/// This class is the "cloud" half of the synced architecture.
-/// In normal use, [SyncedPatientRepository] (Phase 5) calls this class when
-/// it needs to push a local change upstream or pull from the cloud.
-/// Screens should never touch this class directly.
-class FirestorePatientRepository implements IPatientRepository {
-  FirestorePatientRepository({FirebaseFirestore? db})
-      : _db = db ?? FirebaseFirestore.instance;
-
-  final FirebaseFirestore _db;
-
-  CollectionReference<Map<String, dynamic>> _col(String doctorId) =>
-      _db.collection('doctors').doc(doctorId).collection('patients');
-
-  // ── Queries ─────────────────────────────────────────────────────────────────
-
+/// Table: patients — uuid (PK), patient_name, user_id, has_report
+class SupabasePatientRepository implements IPatientRepository {
   @override
   Future<List<Patient>> getAll(String doctorId) async {
     try {
-      final snap = await _col(doctorId)
-          .where('deletedAt', isNull: true)
-          .orderBy('updatedAt', descending: true)
-          .get();
-      return snap.docs.map((d) => _docToPatient(d.data())).toList();
+      final rows = await CloudRegistry.instance.database.select(
+        'patients',
+        eq:      {'user_id': doctorId},
+        isNull:  ['deleted_at'],
+        orderBy: 'updated_at',
+        ascending: false,
+      );
+      return rows.map(Patient.fromMap).toList();
     } catch (e) {
-      debugPrint('[FIRESTORE] getAll failed: $e');
+      debugPrint('[CLOUD_PATIENT] getAll failed: $e');
       return [];
     }
   }
 
   @override
   Future<Patient?> getByUuid(String uuid) async {
-    // We need the doctorId to locate the document; callers must ensure the
-    // patient has a doctorId set, or we return null.
     try {
-      // Query across all doctor sub-collections is not supported — use local
-      // repo for cross-doctor lookups. This method is only used within a known
-      // doctor context. Callers should prefer the local repo for by-uuid lookups.
-      throw UnimplementedError(
-        'getByUuid on Firestore requires a doctorId. '
-        'Use SyncedPatientRepository which falls back to the local copy.',
+      final rows = await CloudRegistry.instance.database.select(
+        'patients',
+        eq:    {'uuid': uuid},
+        limit: 1,
       );
+      if (rows.isEmpty) return null;
+      return Patient.fromMap(rows.first);
     } catch (e) {
-      debugPrint('[FIRESTORE] getByUuid: $e');
+      debugPrint('[CLOUD_PATIENT] getByUuid failed: $e');
       return null;
     }
   }
 
-  // ── Writes ──────────────────────────────────────────────────────────────────
-
   @override
   Future<Patient> create(Patient patient) async {
-    final map = patient.toMap()
-      ..['updatedAt'] = FieldValue.serverTimestamp()
-      ..['createdAt'] = FieldValue.serverTimestamp();
-    await _col(patient.doctorId).doc(patient.uuid).set(map);
-    debugPrint('[FIRESTORE] Created patient ${patient.uuid}');
+    final hasReport = (patient.finalImpression?.isNotEmpty ?? false) ||
+        (patient.colposcopyFindings?.isNotEmpty ?? false);
+    await CloudRegistry.instance.database.upsert('patients', {
+      'uuid':         patient.uuid,
+      'patient_name': patient.patientName,
+      'user_id':      patient.doctorId,
+      'has_report':   hasReport,
+    }, onConflict: 'uuid');
+    debugPrint('[CLOUD_PATIENT] Upserted ${patient.uuid}');
     return patient;
   }
 
   @override
-  Future<Patient> update(Patient patient) async {
-    final map = patient.toMap()
-      ..['updatedAt'] = FieldValue.serverTimestamp();
-    await _col(patient.doctorId).doc(patient.uuid).set(map, SetOptions(merge: true));
-    debugPrint('[FIRESTORE] Updated patient ${patient.uuid}');
-    return patient;
-  }
+  Future<Patient> update(Patient patient) => create(patient);
 
   @override
   Future<void> delete(String uuid) async {
-    // We cannot soft-delete without knowing the doctorId.
-    // SyncedPatientRepository handles this by calling update() with a
-    // deletedAt timestamp already set on the patient object.
-    throw UnimplementedError(
-      'Call update() with deletedAt set instead of delete() on Firestore.',
+    await CloudRegistry.instance.database.update(
+      'patients',
+      {'deleted_at': DateTime.now().toIso8601String()},
+      eq: {'uuid': uuid},
     );
   }
 
-  // ── Sync helpers ─────────────────────────────────────────────────────────────
+  @override
+  Future<List<Patient>> getPendingUpload(String doctorId) async => [];
 
   @override
-  Future<List<Patient>> getPendingUpload(String doctorId) async {
-    // Firestore is the source of truth for cloud — pending state lives locally.
-    return [];
-  }
-
-  @override
-  Future<void> markSynced(String uuid, String cloudId) async {
-    // Cloud repo is always "synced" by definition.
-  }
-
-  // ── Helpers ──────────────────────────────────────────────────────────────────
-
-  Patient _docToPatient(Map<String, dynamic> data) {
-    // Firestore Timestamps → ISO strings for the local Patient.fromMap parser.
-    String? tsToIso(dynamic v) {
-      if (v == null) return null;
-      if (v is Timestamp) return v.toDate().toIso8601String();
-      return v.toString();
-    }
-
-    final normalized = Map<String, dynamic>.from(data);
-    for (final key in [
-      'created_at', 'updated_at', 'deleted_at', 'date_of_birth',
-      'date_of_visit', 'last_menstrual_date', 'hpv_date', 'hcg_date',
-    ]) {
-      if (normalized.containsKey(key)) {
-        normalized[key] = tsToIso(normalized[key]);
-      }
-    }
-    return Patient.fromMap(normalized);
-  }
+  Future<void> markSynced(String uuid, String cloudId) async {}
 }

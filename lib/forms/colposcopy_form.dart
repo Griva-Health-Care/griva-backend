@@ -28,7 +28,11 @@ class ColposcopyForm extends StatefulWidget {
   final ValueChanged<String>? onFindingsChanged;
   final ValueChanged<String>? onFinalImpressionChanged;
   final ValueChanged<String>? onRemarksChanged;
-  const ColposcopyForm({super.key, this.initialPatientName, this.initialPatientId, this.initialDob, this.initialVisitDate, this.initialFindingsSummary, this.initialImages, this.onImagesChanged, this.onChiefComplaintChanged, this.onFindingsChanged, this.onFinalImpressionChanged, this.onRemarksChanged});
+  /// When false the image preview strip is not rendered (parent owns it).
+  final bool showImagePreview;
+  /// Called when the user taps "Preview Report" — parent should generate+open the PDF.
+  final VoidCallback? onPreviewReport;
+  const ColposcopyForm({super.key, this.initialPatientName, this.initialPatientId, this.initialDob, this.initialVisitDate, this.initialFindingsSummary, this.initialImages, this.onImagesChanged, this.onChiefComplaintChanged, this.onFindingsChanged, this.onFinalImpressionChanged, this.onRemarksChanged, this.showImagePreview = true, this.onPreviewReport});
 
   @override
   State<ColposcopyForm> createState() => _ColposcopyFormState();
@@ -212,51 +216,53 @@ class _ColposcopyFormState extends State<ColposcopyForm> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ScrollConfiguration(
-          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-          child: _ImagePreviewRow(
-            images: _images,
-            canAdd: _images.length < _kMaxImages,
-            onAdd: _tryAddPlaceholderImage,
-            onRemove: (idx) {
-              setState(() {
-                _images.removeAt(idx);
-                if (idx >= 0 && idx < _currentImagesBytes.length) {
-                  _currentImagesBytes.removeAt(idx);
+        if (widget.showImagePreview) ...[
+          ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+            child: DiagnosisImagePreviewRow(
+              images: _images,
+              canAdd: _images.length < _kMaxImages,
+              onAdd: _tryAddPlaceholderImage,
+              onRemove: (idx) {
+                setState(() {
+                  _images.removeAt(idx);
+                  if (idx >= 0 && idx < _currentImagesBytes.length) {
+                    _currentImagesBytes.removeAt(idx);
+                  }
+                  if (_images.isEmpty) {
+                    _imageValidationError = true;
+                  }
+                });
+                if (widget.onImagesChanged != null) {
+                  widget.onImagesChanged!(_currentImagesBytes);
                 }
-                if (_images.isEmpty) {
-                  _imageValidationError = true;
-                }
-              });
-              if (widget.onImagesChanged != null) {
-                widget.onImagesChanged!(_currentImagesBytes);
-              }
-            },
-            onOpen: _openImage,
-          ),
-        ),
-        if (_imageValidationError)
-          Padding(
-            padding: const EdgeInsets.only(top: 8.0, left: 4.0, right: 4.0),
-            child: Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFEBEE), // light red
-                border: Border.all(color: Colors.redAccent),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: const [
-                  Icon(Icons.error_outline, color: Colors.redAccent, size: 18),
-                  SizedBox(width: 8),
-                  Text('Please add at least 1 image to proceed.',
-                      style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600)),
-                ],
-              ),
+              },
+              onOpen: _openImage,
             ),
           ),
-        const SizedBox(height: 16),
+          if (_imageValidationError)
+            Padding(
+              padding: const EdgeInsets.only(top: 8.0, left: 4.0, right: 4.0),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFEBEE),
+                  border: Border.all(color: Colors.redAccent),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(Icons.error_outline, color: Colors.redAccent, size: 18),
+                    SizedBox(width: 8),
+                    Text('Please add at least 1 image to proceed.',
+                        style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 16),
+        ],
         SizedBox(
           height: _reportViewportHeight(context),
           child: Scrollbar(
@@ -274,10 +280,9 @@ class _ColposcopyFormState extends State<ColposcopyForm> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        ElevatedButton(
-                  onPressed: () {
-                    _emitFinalImpression();
-                  },
+                        ElevatedButton.icon(
+                          onPressed: widget.onPreviewReport,
+                          icon: const Icon(Icons.picture_as_pdf_outlined),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: kYesNoPurple,
                             foregroundColor: Colors.white,
@@ -285,7 +290,7 @@ class _ColposcopyFormState extends State<ColposcopyForm> {
                             textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
-                          child: const Text('Preview Report'),
+                          label: const Text('Preview Report'),
                         ),
                       ],
                     ),
@@ -362,17 +367,6 @@ class _ColposcopyFormState extends State<ColposcopyForm> {
               },
             ),
             const SizedBox(height: 16),
-            // Chief complaint derived from Indications
-            Builder(builder: (context) {
-              final String derivedChiefComplaint = _buildChiefComplaintFromIndications();
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (context.mounted && widget.onChiefComplaintChanged != null) {
-                  widget.onChiefComplaintChanged!(derivedChiefComplaint);
-                }
-              });
-              return const SizedBox.shrink();
-            }),
-            
             // Dates row responsive
             LayoutBuilder(
               builder: (context, constraints) {
@@ -728,7 +722,7 @@ class _ColposcopyFormState extends State<ColposcopyForm> {
   Future<void> _openSwedeScore() async {
     final int? result = await showDialog<int>(
       context: context,
-      builder: (context) => const SwedeScoreModal(),
+      builder: (context) => SwedeScoreModal(images: _currentImagesBytes),
     );
     if (result != null && context.mounted) {
       setState(() => _savedScore = result);
@@ -1067,14 +1061,15 @@ class _ColposcopyFormState extends State<ColposcopyForm> {
   }
 }
 
-// Image preview row (fixed on top of the Colposcopy form)
-class _ImagePreviewRow extends StatefulWidget {
+// Image preview row — can be embedded in ColposcopyForm or pinned by a parent.
+class DiagnosisImagePreviewRow extends StatefulWidget {
   final List<ImageProvider> images;
   final bool canAdd;
   final VoidCallback onAdd;
   final void Function(int index) onRemove;
   final void Function(ImageProvider provider) onOpen;
-  const _ImagePreviewRow({
+  const DiagnosisImagePreviewRow({
+    super.key,
     required this.images,
     required this.canAdd,
     required this.onAdd,
@@ -1083,10 +1078,10 @@ class _ImagePreviewRow extends StatefulWidget {
   });
 
   @override
-  State<_ImagePreviewRow> createState() => _ImagePreviewRowState();
+  State<DiagnosisImagePreviewRow> createState() => _DiagnosisImagePreviewRowState();
 }
 
-class _ImagePreviewRowState extends State<_ImagePreviewRow> {
+class _DiagnosisImagePreviewRowState extends State<DiagnosisImagePreviewRow> {
   late final ScrollController _scrollController;
 
   @override
@@ -1293,36 +1288,63 @@ class _SegmentedToggle extends StatelessWidget {
 }
 
 // Update display format to DD/MM/YYYY as requested
-class _DateField extends StatelessWidget {
+class _DateField extends StatefulWidget {
   final DateTime? date;
   final ValueChanged<DateTime> onPick;
   const _DateField({required this.date, required this.onPick});
 
   @override
+  State<_DateField> createState() => _DateFieldState();
+}
+
+class _DateFieldState extends State<_DateField> {
+  late final TextEditingController _ctrl;
+
+  static String _format(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.date == null ? '' : _format(widget.date!));
+  }
+
+  @override
+  void didUpdateWidget(covariant _DateField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.date != oldWidget.date) {
+      _ctrl.text = widget.date == null ? '' : _format(widget.date!);
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final controller = TextEditingController(text: date == null ? '' : _format(date!));
     return TextField(
-      controller: controller,
+      controller: _ctrl,
       readOnly: true,
-      decoration: InputDecoration(
+      decoration: const InputDecoration(
         hintText: 'DD/MM/YYYY',
-        suffixIcon: const Icon(Icons.calendar_today_outlined),
-        border: const OutlineInputBorder(),
+        suffixIcon: Icon(Icons.calendar_today_outlined),
+        border: OutlineInputBorder(),
       ),
       onTap: () async {
         final now = DateTime.now();
         final picked = await showDatePicker(
           context: context,
-          initialDate: date ?? now,
+          initialDate: widget.date ?? now,
           firstDate: DateTime(1900),
           lastDate: DateTime(now.year + 5),
         );
-        if (picked != null) onPick(picked);
+        if (picked != null) widget.onPick(picked);
       },
     );
   }
-
-  String _format(DateTime d) => '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
 }
 
 // Helper controls

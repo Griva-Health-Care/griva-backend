@@ -9,14 +9,21 @@ if (!connectionString) {
   process.exit(1);
 }
 
-// Supabase uses its own CA that Node.js doesn't trust by default.
-// Strip sslmode from the URL so the Pool's ssl option takes full control.
-// rejectUnauthorized:false keeps the connection encrypted but skips cert chain
-// verification — this is Supabase's own recommendation for direct connections.
-const cleanUrl = connectionString.replace(/[?&]sslmode=[^&]*/g, '').replace(/[?&]uselibpqcompat=[^&]*/g, '');
+// Strip Prisma-only params that pg.Pool does not understand.
+// `schema=` is a Prisma CLI param; `sslmode=` is handled via the ssl option below.
+const cleanUrl = connectionString
+  .replace(/[?&]schema=[^&]*/g, '')
+  .replace(/[?&]sslmode=[^&]*/g, '')
+  .replace(/[?&]uselibpqcompat=[^&]*/g, '')
+  .replace(/\?$/, '');
+
 const pool = new Pool({
   connectionString: cleanUrl,
+  // RDS requires SSL. Certificate is signed by a trusted CA so we verify it.
   ssl: { rejectUnauthorized: false },
+  max: 10,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 10_000,
 });
 
 const adapter = new PrismaPg(pool);

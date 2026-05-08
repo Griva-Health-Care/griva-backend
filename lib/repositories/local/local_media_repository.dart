@@ -5,7 +5,7 @@ import '../media_file.dart';
 
 /// SQLite-backed implementation of [IMediaRepository].
 class LocalMediaRepository implements IMediaRepository {
-  LocalMediaRepository() : _dao = MediaFileDao(AppDatabase());
+  LocalMediaRepository() : _dao = MediaFileDao(AppDatabase.instance);
 
   final MediaFileDao _dao;
 

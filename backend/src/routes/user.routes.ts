@@ -4,16 +4,33 @@ import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();
 
+// Full profile field selection reused across all user endpoints
+const USER_SELECT = {
+  id:                true,
+  email:             true,
+  fullName:          true,
+  role:              true,
+  hospital:          true,
+  phone:             true,
+  licenseNumber:     true,
+  city:              true,
+  state:             true,
+  colposcopeSerialNo: true,
+  isActive:          true,
+  isAvailable:       true,
+  createdAt:         true,
+  updatedAt:         true,
+} as const;
+
 // POST /users/register — idempotent upsert after Firebase sign-up
 // Called by the Flutter app immediately after a successful Firebase registration.
 router.post('/register', authMiddleware, async (req, res) => {
   try {
     const { userId } = (req as any).user;
-    const { fullName, hospital, role } = req.body as {
-      fullName?: string;
-      hospital?: string;
-      role?: string;
-    };
+    const {
+      fullName, hospital, role,
+      phone, licenseNumber, city, state, colposcopeSerialNo,
+    } = req.body as Record<string, string | undefined>;
 
     const safeRole = ['doctor', 'diagnostic', 'tele_reporter'].includes(role ?? '')
       ? role!
@@ -22,11 +39,16 @@ router.post('/register', authMiddleware, async (req, res) => {
     const user = await prisma.user.update({
       where: { id: userId },
       data: {
-        ...(fullName !== undefined && { fullName }),
-        ...(hospital !== undefined && { hospital }),
+        ...(fullName           !== undefined && { fullName }),
+        ...(hospital           !== undefined && { hospital }),
+        ...(phone              !== undefined && { phone }),
+        ...(licenseNumber      !== undefined && { licenseNumber }),
+        ...(city               !== undefined && { city }),
+        ...(state              !== undefined && { state }),
+        ...(colposcopeSerialNo !== undefined && { colposcopeSerialNo }),
         role: safeRole,
       },
-      select: { id: true, email: true, fullName: true, role: true, hospital: true, isActive: true, createdAt: true },
+      select: USER_SELECT,
     });
 
     res.status(200).json({ user });
@@ -36,14 +58,14 @@ router.post('/register', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /users/me — returns the authenticated user's profile
+// GET /users/me — returns the authenticated user's full profile
 router.get('/me', authMiddleware, async (req, res) => {
   try {
     const { userId } = (req as any).user;
 
     const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, email: true, fullName: true, role: true, hospital: true, isActive: true, createdAt: true },
+      where:  { id: userId },
+      select: USER_SELECT,
     });
 
     if (!user) return res.status(404).json({ message: 'User not found' });
@@ -59,12 +81,28 @@ router.get('/me', authMiddleware, async (req, res) => {
 router.put('/me', authMiddleware, async (req, res) => {
   try {
     const { userId } = (req as any).user;
-    const { fullName, hospital } = req.body as { fullName?: string; hospital?: string };
+    const {
+      fullName, hospital, role,
+      phone, licenseNumber, city, state, colposcopeSerialNo,
+    } = req.body as Record<string, string | undefined>;
+
+    const safeRole = role && ['doctor', 'diagnostic', 'tele_reporter'].includes(role)
+      ? role
+      : undefined;
 
     const user = await prisma.user.update({
       where: { id: userId },
-      data: { fullName: fullName ?? null, hospital: hospital ?? null },
-      select: { id: true, email: true, fullName: true, role: true, hospital: true, isActive: true, updatedAt: true },
+      data: {
+        ...(fullName           !== undefined && { fullName:           fullName           ?? null }),
+        ...(hospital           !== undefined && { hospital:           hospital           ?? null }),
+        ...(safeRole           !== undefined && { role:               safeRole }),
+        ...(phone              !== undefined && { phone:              phone              ?? null }),
+        ...(licenseNumber      !== undefined && { licenseNumber:      licenseNumber      ?? null }),
+        ...(city               !== undefined && { city:               city               ?? null }),
+        ...(state              !== undefined && { state:              state              ?? null }),
+        ...(colposcopeSerialNo !== undefined && { colposcopeSerialNo: colposcopeSerialNo ?? null }),
+      },
+      select: USER_SELECT,
     });
 
     res.json({ user });
@@ -86,7 +124,7 @@ router.put('/fcm-token', authMiddleware, async (req, res) => {
 
     await prisma.user.update({
       where: { id: userId },
-      data: { fcmToken },
+      data:  { fcmToken },
     });
 
     res.json({ ok: true });

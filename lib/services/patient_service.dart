@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../repositories/i_patient_repository.dart';
 import '../repositories/local/local_patient_repository.dart';
 import '../repositories/repository_factory.dart';
+import '../repositories/synced/synced_patient_repository.dart';
 import 'session_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -426,9 +427,12 @@ class PatientService {
 
   // A typed reference to the local repo for operations that are always
   // local-only (legacy JSON image arrays, getById by SQLite rowid).
-  // Lazily created; null when the active repo is not local.
-  LocalPatientRepository? get _localRepo =>
-      _repo is LocalPatientRepository ? _repo : null;
+  // Works for both LocalPatientRepository and SyncedPatientRepository.
+  LocalPatientRepository get _localRepo {
+    if (_repo is LocalPatientRepository) return _repo as LocalPatientRepository;
+    if (_repo is SyncedPatientRepository) return (_repo as SyncedPatientRepository).local;
+    return LocalPatientRepository();
+  }
 
   // ── Queries ───────────────────────────────────────────────────────────────
 
@@ -440,7 +444,7 @@ class PatientService {
       _repo.getByUuid(uuid);
 
   Future<Patient?> getPatientById(int id) =>
-      _localRepo?.getById(id) ?? Future.value(null);
+      _localRepo.getById(id);
 
   // ── Writes ────────────────────────────────────────────────────────────────
 
@@ -476,7 +480,7 @@ class PatientService {
       ..add(imagePath);
     final meta = Map<String, dynamic>.from(patient.imageMetadata ?? {});
     if (metadata != null) meta[imagePath] = metadata;
-    await _localRepo?.updateExaminationImages(patientId, images, meta);
+    await _localRepo.updateExaminationImages(patientId, images, meta);
   }
 
   Future<void> removeExaminationImage(int patientId, String imagePath) async {
@@ -486,7 +490,7 @@ class PatientService {
       ..remove(imagePath);
     final meta = Map<String, dynamic>.from(patient.imageMetadata ?? {})
       ..remove(imagePath);
-    await _localRepo?.updateExaminationImages(patientId, images, meta);
+    await _localRepo.updateExaminationImages(patientId, images, meta);
   }
 
   Future<List<String>> getExaminationImages(int patientId) async {

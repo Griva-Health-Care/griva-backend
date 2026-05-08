@@ -29,6 +29,8 @@ class MedicalReportService {
     String? examiningPhysician,
     String? signatureDate,
     Map<String, String>? forensicExamination,
+    Uint8List? customHeaderImage,
+    Uint8List? customFooterImage,
   }) async {
     try {
       final pdf = pw.Document();
@@ -71,8 +73,8 @@ class MedicalReportService {
         pw.MultiPage(
           theme: theme,
           pageFormat: PdfPageFormat.a4,
-          header: (context) => _buildHeader(),
-          footer: (context) => _buildFooter(patient, examiningPhysician),
+          header: (context) => _buildHeader(customHeaderImage: customHeaderImage),
+          footer: (context) => _buildFooter(patient, examiningPhysician, customFooterImage: customFooterImage),
           build: (pw.Context context) {
             return [
               // Patient Information
@@ -124,9 +126,10 @@ class MedicalReportService {
 
       // Get appropriate directory for the platform
       final pdfDir = await _getPdfDirectory();
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final safePatientName = patient.patientName.replaceAll(RegExp(r'[^\w\s-]'), '_');
-      final file = File('$pdfDir/${safePatientName}_comprehensive_report_$timestamp.pdf');
+      final now = DateTime.now();
+      final dateStr = DateFormat('dd-MM-yyyy').format(now);
+      final safePatientName = patient.patientName.replaceAll(RegExp(r'[^\w\s-]'), '_').trim();
+      final file = File('$pdfDir/${safePatientName}_$dateStr.pdf');
 
       // Save PDF
       await file.writeAsBytes(await pdf.save());
@@ -136,7 +139,7 @@ class MedicalReportService {
         final metaFile = File('${file.path}$_metadataSuffix');
         final meta = <String, dynamic>{
           'version': 1,
-          'generatedAtMs': timestamp,
+          'generatedAtMs': now.millisecondsSinceEpoch,
           'patientId': patient.id,
           'patientName': patient.patientName,
           'patientExternalId': patient.patientId,
@@ -188,13 +191,33 @@ class MedicalReportService {
         .whereType<File>()
         .where((file) {
           final name = p.basename(file.path);
-          return name.startsWith('${safePatientName}_comprehensive_report_');
+          return name.startsWith('${safePatientName}_');
         })
         .toList()
       ..sort((a, b) => a.path.compareTo(b.path));
   }
   
-  static pw.Widget _buildHeader() {
+  // A4 printable width in points (595 - 2×28 margins used by MultiPage).
+  static const double _pageWidth = 539.0;
+
+  static pw.Widget _buildHeader({Uint8List? customHeaderImage}) {
+    if (customHeaderImage != null) {
+      return pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: [
+          pw.ConstrainedBox(
+            constraints: const pw.BoxConstraints(maxWidth: _pageWidth, maxHeight: 72),
+            child: pw.Image(
+              pw.MemoryImage(customHeaderImage),
+              fit: pw.BoxFit.contain,
+            ),
+          ),
+          pw.SizedBox(height: 6),
+          pw.Divider(),
+          pw.SizedBox(height: 8),
+        ],
+      );
+    }
     return pw.Column(
       children: [
         pw.Text('COLPOSCOPY REPORT', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 24)),
@@ -206,34 +229,48 @@ class MedicalReportService {
     );
   }
 
-  static pw.Widget _buildFooter(Patient patient, String? examiningPhysician) {
+  static pw.Widget _buildFooter(Patient patient, String? examiningPhysician, {Uint8List? customFooterImage}) {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         pw.Divider(),
-        pw.SizedBox(height: 10),
-        pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-          children: [
-            pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text('Examining Physician: ${examiningPhysician ?? ''}'),
-                pw.SizedBox(height: 20),
-                pw.Text('Signature & Date: _________________________'),
-              ]
+        pw.SizedBox(height: 8),
+        if (customFooterImage != null)
+          pw.Center(
+            child: pw.ConstrainedBox(
+              constraints: const pw.BoxConstraints(maxWidth: _pageWidth, maxHeight: 56),
+              child: pw.Image(
+                pw.MemoryImage(customFooterImage),
+                fit: pw.BoxFit.contain,
+              ),
             ),
-            pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.end,
-              children: [
-                pw.Text('Report Generated: ${_formatDate(DateTime.now())}'),
-                pw.SizedBox(height: 5),
-                pw.Text('(This Report is not valid for Medico Legal Cases)', style: pw.TextStyle(fontStyle: pw.FontStyle.italic, fontSize: 9, color: PdfColors.grey)),
-              ]
-            )
-          ]
-        ),
-      ]
+          )
+        else
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text('Examining Physician: ${examiningPhysician ?? ''}'),
+                  pw.SizedBox(height: 20),
+                  pw.Text('Signature & Date: _________________________'),
+                ],
+              ),
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Text('Report Generated: ${_formatDate(DateTime.now())}'),
+                  pw.SizedBox(height: 5),
+                  pw.Text(
+                    '(This Report is not valid for Medico Legal Cases)',
+                    style: pw.TextStyle(fontStyle: pw.FontStyle.italic, fontSize: 9, color: PdfColors.grey),
+                  ),
+                ],
+              ),
+            ],
+          ),
+      ],
     );
   }
 

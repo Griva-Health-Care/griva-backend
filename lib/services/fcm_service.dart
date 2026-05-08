@@ -1,71 +1,45 @@
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 
+import '../cloud/cloud_registry.dart';
 import 'griva_api_service.dart';
 
-/// Handles Firebase Cloud Messaging lifecycle:
-///   1. Request permission on first run.
-///   2. Upload the device token to the backend so the server can send pushes.
-///   3. Listen for token refreshes and re-upload automatically.
-///   4. Expose a stream for foreground messages so UI can react.
+/// Manages push notification lifecycle using [CloudRegistry.instance.push].
 ///
 /// Call [init] once after the user signs in successfully.
+/// To swap push providers, change the [IPushProvider] registered in
+/// [CloudRegistry] — nothing here needs to change.
 class FcmService {
   FcmService._();
   static final FcmService instance = FcmService._();
 
-  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
-
-  /// Request permission, register the token, and start listeners.
   Future<void> init() async {
-    // Skip on web and Linux (no FCM support).
     if (kIsWeb) return;
 
     try {
-      final settings = await _fcm.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
+      final push = CloudRegistry.instance.push;
+      await push.initialize();
 
-      if (settings.authorizationStatus == AuthorizationStatus.denied) return;
-
-      // Upload current token.
-      final token = await _fcm.getToken();
+      final token = await push.getToken();
       if (token != null) await _uploadToken(token);
 
-      // Re-upload whenever the token rotates.
-      _fcm.onTokenRefresh.listen(_uploadToken);
-
-      // Handle messages received while the app is open.
-      FirebaseMessaging.onMessage.listen(_onForegroundMessage);
-
-      // Handle taps on notifications that opened the app from background.
-      FirebaseMessaging.onMessageOpenedApp.listen(_onMessageOpenedApp);
+      push.onTokenRefresh.listen(_uploadToken);
+      push.onMessage.listen((msg) {
+        debugPrint('[PUSH] Foreground message: ${msg.title}');
+      });
+      push.onMessageOpenedApp.listen((msg) {
+        debugPrint('[PUSH] Notification tapped: ${msg.data}');
+      });
     } catch (e) {
-      debugPrint('[FCM] init error: $e');
+      debugPrint('[PUSH] init error: $e');
     }
   }
 
   Future<void> _uploadToken(String token) async {
     try {
       await GrivaApiService.instance.updateFcmToken(token);
-      debugPrint('[FCM] Token uploaded');
+      debugPrint('[PUSH] Token uploaded');
     } catch (e) {
-      debugPrint('[FCM] Token upload failed: $e');
+      debugPrint('[PUSH] Token upload failed: $e');
     }
-  }
-
-  void _onForegroundMessage(RemoteMessage message) {
-    debugPrint('[FCM] Foreground message: ${message.notification?.title}');
-    // The in-app notification bell in TeleApp will pick this up on next poll.
-    // For a richer experience, show a local snackbar or local notification here.
-  }
-
-  void _onMessageOpenedApp(RemoteMessage message) {
-    debugPrint('[FCM] Notification tapped: ${message.data}');
-    // Navigate to the relevant case if caseId is present in message.data.
-    // Navigation context is not available here; use a global navigator key
-    // or an event bus if deep-linking is needed.
   }
 }

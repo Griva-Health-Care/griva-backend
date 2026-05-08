@@ -3,7 +3,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../cloud/cloud_registry.dart';
+import '../cloud/firebase/firebase_auth_provider.dart';
 
 /// REST client for the Griva Node.js backend (port 5000).
 /// Authenticates every request with the Firebase ID token of the
@@ -13,17 +15,23 @@ class GrivaApiService {
   static final GrivaApiService instance = GrivaApiService._();
 
   static String get _base {
-    const env = String.fromEnvironment('GRIVA_NODE_HOST');
-    if (env.isNotEmpty) return env; // caller passes full URL incl. scheme
-    return 'https://griva-backend.onrender.com';
+    const env = String.fromEnvironment('BACKEND_URL');
+    if (env.isNotEmpty) return env;
+    return 'http://3.6.1.238:5000';
   }
 
   // ── Auth helpers ──────────────────────────────────────────────────────────
 
   Future<String> _token() async {
-    final session = Supabase.instance.client.auth.currentSession;
-    if (session == null) throw Exception('Not signed in');
-    return session.accessToken;
+    final auth = CloudRegistry.instance.auth;
+    // Refresh Firebase ID token before each call to avoid 1-hour expiry
+    if (auth is FirebaseAuthProvider) {
+      final fresh = await auth.refreshToken();
+      if (fresh != null) return fresh;
+    }
+    final token = auth.accessToken;
+    if (token == null) throw Exception('Not signed in');
+    return token;
   }
 
   Future<Map<String, String>> _headers() async => {
@@ -33,8 +41,8 @@ class GrivaApiService {
 
   // ── Generic request helpers ───────────────────────────────────────────────
 
-  static const _timeout = Duration(seconds: 65); // covers Render free-tier cold start (~50s)
-  static const _retryDelay = Duration(seconds: 4);
+  static const _timeout    = Duration(seconds: 30);
+  static const _retryDelay = Duration(seconds: 3);
 
   Future<dynamic> _get(String path) => _withRetry(() async {
     final res = await http
@@ -57,14 +65,12 @@ class GrivaApiService {
     return _parse(res);
   });
 
-  /// Retries once on network/timeout errors. Never retries on 4xx/5xx (those are real errors).
   Future<T> _withRetry<T>(Future<T> Function() fn) async {
     try {
       return await fn();
     } on GrivaApiException {
-      rethrow; // server returned a real error — don't retry
+      rethrow;
     } catch (_) {
-      // Network error or timeout — server may be cold-starting, wait then retry once
       await Future.delayed(_retryDelay);
       return await fn();
     }
@@ -75,8 +81,7 @@ class GrivaApiService {
     try {
       body = jsonDecode(res.body);
     } catch (_) {
-      // Non-JSON response (e.g. Render gateway page during cold start)
-      throw GrivaApiException(res.statusCode, 'Server is starting up, please try again.');
+      throw GrivaApiException(res.statusCode, 'Unexpected server response');
     }
     if (res.statusCode >= 400) {
       final msg = (body is Map ? body['message'] : null) ?? res.reasonPhrase;
@@ -85,17 +90,59 @@ class GrivaApiService {
     return body;
   }
 
-  // ── Warm-up (call once at app start to wake Render free-tier server) ────────
-
-  /// Pings /health silently. Never throws — failures are ignored.
+  /// Pings /health silently. Never throws.
   Future<void> warmUp() async {
     try {
       await http
           .get(Uri.parse('$_base/health'))
-          .timeout(const Duration(seconds: 70));
-    } catch (_) {
-      // Intentionally silent — this is a best-effort wake-up call
-    }
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {}
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>> authMe() async {
+    final data = await _get('/auth/me');
+    return data['user'] as Map<String, dynamic>;
+  }
+
+  /// Sets (or changes) the password for [email].
+  /// For Supabase-migrated users with no password yet, [currentPassword] can be omitted.
+  Future<String> setPassword({
+    required String email,
+    required String newPassword,
+    String? currentPassword,
+  }) async {
+    final res = await http
+        .post(
+          Uri.parse('$_base/auth/set-password'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'email':       email,
+            'newPassword': newPassword,
+            if (currentPassword != null) 'currentPassword': currentPassword,
+          }),
+        )
+        .timeout(_timeout);
+    final body = _parse(res);
+    return body['token'] as String;
+  }
+
+  // ── Profile ───────────────────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>?> getProfile() async {
+    final data = await _get('/profile');
+    return data['profile'] as Map<String, dynamic>?;
+  }
+
+  Future<Map<String, dynamic>> saveProfile(Map<String, dynamic> profile) async {
+    final data = await _put('/profile', profile);
+    return data['profile'] as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> getConfig() async {
+    final data = await _get('/profile/config');
+    return data['config'] as Map<String, dynamic>;
   }
 
   // ── User ──────────────────────────────────────────────────────────────────
@@ -120,12 +167,7 @@ class GrivaApiService {
       throw GrivaApiException(streamed.statusCode,
           (body is Map ? body['message'] : null)?.toString() ?? 'Upload failed');
     }
-    return GrivaFile(
-      url : body['url']  as String,
-      name: body['name'] as String,
-      type: body['type'] as String,
-      size: body['size'] as int,
-    );
+    return GrivaFile.fromJson(body as Map<String, dynamic>);
   }
 
   // ── Cases — reporter list ─────────────────────────────────────────────────
@@ -267,24 +309,35 @@ class GrivaReporter {
 }
 
 class GrivaFile {
-  final String url;
-  final String name;
-  final String type;
-  final int size;
+  final String  url;   // presigned GET URL (24-hour expiry) — for display only
+  final String? key;   // permanent S3 key (e.g. "cases/uuid.jpg") — send back when submitting cases
+  final String  name;
+  final String  type;
+  final int     size;
 
   const GrivaFile({
     required this.url,
+    this.key,
     required this.name,
     required this.type,
     required this.size,
   });
 
+  factory GrivaFile.fromJson(Map<String, dynamic> j) => GrivaFile(
+    url:  j['url']  as String,
+    key:  j['key']  as String?,
+    name: j['name'] as String,
+    type: j['type'] as String,
+    size: j['size'] as int,
+  );
+
   Map<String, dynamic> toJson() => {
-        'url': url,
-        'name': name,
-        'type': type,
-        'size': size,
-      };
+    'url':  url,
+    if (key != null) 'key': key,
+    'name': name,
+    'type': type,
+    'size': size,
+  };
 }
 
 class GrivaCase {
@@ -307,12 +360,7 @@ class GrivaCase {
         assignedBy = j['assignedBy'] as String?,
         notes = j['notes'] as String?,
         files = ((j['files'] as List?) ?? [])
-            .map((f) => GrivaFile(
-                  url: f['url'] as String,
-                  name: f['name'] as String,
-                  type: f['type'] as String,
-                  size: f['size'] as int,
-                ))
+            .map((f) => GrivaFile.fromJson(f as Map<String, dynamic>))
             .toList(),
         status = j['status'] as String,
         reporterNote = j['reporterNote'] as String?,

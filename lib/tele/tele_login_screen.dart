@@ -1,5 +1,6 @@
+import '../cloud/cloud_registry.dart';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 
 import 'tele_app.dart';
 
@@ -21,7 +22,7 @@ class _TeleLoginScreenState extends State<TeleLoginScreen> {
   }
 
   void _checkAuth() {
-    if (Supabase.instance.client.auth.currentSession != null) {
+    if (CloudRegistry.instance.auth.isSignedIn) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _goHome());
     }
   }

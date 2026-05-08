@@ -19,10 +19,16 @@ part 'app_database.g.dart';
   daos: [PatientDao, MediaFileDao, TeleCaseDao],
 )
 class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(openConnection());
+  // Singleton — every part of the app shares one connection.
+  static final AppDatabase instance = AppDatabase._internal();
+  AppDatabase._internal() : super(openConnection());
+
+  // Keep the default constructor so generated code still compiles,
+  // but redirect it to the singleton.
+  factory AppDatabase() => instance;
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -139,6 +145,27 @@ class AppDatabase extends _$AppDatabase {
             ).getSingle();
         if (teleCasesExists.read<int>('count') == 0) {
           await m.createTable(teleCases);
+        }
+      }
+
+      // ── v3 → v4 ──────────────────────────────────────────────────────
+      // Adds report header/footer image paths and toggle to users table.
+      if (from < 4) {
+        for (final col in ['report_header_image', 'report_footer_image']) {
+          final exists = await customSelect(
+            "SELECT COUNT(*) as count FROM pragma_table_info('users') WHERE name='$col'",
+          ).getSingle();
+          if (exists.read<int>('count') == 0) {
+            await customStatement('ALTER TABLE "users" ADD COLUMN "$col" TEXT');
+          }
+        }
+        final toggleExists = await customSelect(
+          "SELECT COUNT(*) as count FROM pragma_table_info('users') WHERE name='use_report_header_footer'",
+        ).getSingle();
+        if (toggleExists.read<int>('count') == 0) {
+          await customStatement(
+            'ALTER TABLE "users" ADD COLUMN "use_report_header_footer" INTEGER NOT NULL DEFAULT 0',
+          );
         }
       }
     },

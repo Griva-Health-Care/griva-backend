@@ -1,11 +1,11 @@
+import 'cloud/cloud_registry.dart';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'core/app_router.dart';
 import 'services/auth_service.dart';
 import 'services/fcm_service.dart';
 import 'services/profile_service.dart';
 import 'services/abdm_auth_service.dart';
-import 'screens/complete_profile_screen.dart';
 import 'screens/hpr_login_screen.dart';
 import 'widgets/centralized_footer.dart';
 
@@ -40,11 +40,11 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
   final _signupLicenseController         = TextEditingController();
   final _signupCityController            = TextEditingController();
   final _signupStateController           = TextEditingController();
-  String _signupAccountType              = 'doctor';
+  final _signupColposcopeController      = TextEditingController();
+  String _signupRole = 'doctor';
 
   bool _isSignupLoading = false;
   bool _isAbdmLoading   = false;
-  bool _isGoogleLoading = false;
 
   final AbdmAuthService _abdmAuth = AbdmAuthService();
 
@@ -100,7 +100,7 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
         name:     name,
         password: _signupPasswordController.text,
         hospital: _signupHospitalController.text.trim(),
-        role:     _signupAccountType == 'diagnostic_center' ? 'diagnostic' : 'doctor',
+        role:     _signupRole,
       );
 
       if (!mounted) return;
@@ -116,18 +116,19 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
         }
 
         // Save mandatory profile to Firestore
-        final uid = Supabase.instance.client.auth.currentUser?.id;
+        final uid = CloudRegistry.instance.auth.currentUserId;
         if (uid != null) {
           await ProfileService.instance.saveProfile(
             uid,
             DoctorProfile(
-              fullName:      name,
-              phone:         _signupPhoneController.text.trim(),
-              hospital:      _signupHospitalController.text.trim(),
-              accountType:   _signupAccountType,
-              licenseNumber: _signupLicenseController.text.trim(),
-              city:          _signupCityController.text.trim(),
-              state:         _signupStateController.text.trim(),
+              fullName:           name,
+              phone:              _signupPhoneController.text.trim(),
+              hospital:           _signupHospitalController.text.trim(),
+              accountType:        _signupRole,
+              licenseNumber:      _signupLicenseController.text.trim(),
+              city:               _signupCityController.text.trim(),
+              state:              _signupStateController.text.trim(),
+              colposcopeSerialNo: _signupColposcopeController.text.trim(),
             ),
           );
         }
@@ -151,39 +152,6 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
     if (mounted) setState(() => _isSignupLoading = false);
   }
 
-  // ================= GOOGLE SIGN-IN =================
-  void _signInWithGoogle() async {
-    setState(() => _isGoogleLoading = true);
-    try {
-      final result = await _authService.signInWithGoogle();
-      if (!mounted) return;
-
-      if (result.cancelled) return;
-
-      FcmService.instance.init();
-
-      if (result.needsProfile) {
-        // Profile incomplete — redirect to the mandatory profile form
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => CompleteProfileScreen(
-              prefillName:  result.displayName,
-              prefillEmail: result.email,
-            ),
-          ),
-        );
-      } else {
-        AppRouter.navigateToHome(context, userEmail: result.email);
-      }
-    } catch (e) {
-      if (!mounted) return;
-      _showErrorDialog(e.toString().replaceFirst('Exception: ', ''));
-    } finally {
-      if (mounted) setState(() => _isGoogleLoading = false);
-    }
-  }
-
   void _clearSignupForm() {
     _signupNameController.clear();
     _signupEmailController.clear();
@@ -194,21 +162,20 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
     _signupLicenseController.clear();
     _signupCityController.clear();
     _signupStateController.clear();
-    setState(() => _signupAccountType = 'doctor');
+    _signupColposcopeController.clear();
+    setState(() => _signupRole = 'doctor');
   }
 
   bool _validateSignupForm() {
-    final checks = <String, String>{
-      'Full name':                _signupNameController.text.trim(),
-      'Email':                    _signupEmailController.text.trim(),
-      'Phone number':             _signupPhoneController.text.trim(),
-      'Hospital / clinic name':   _signupHospitalController.text.trim(),
-      'License number':           _signupLicenseController.text.trim(),
-      'City':                     _signupCityController.text.trim(),
-      'State':                    _signupStateController.text.trim(),
+    // Required fields only
+    final required = <String, String>{
+      'Full name':              _signupNameController.text.trim(),
+      'Email':                  _signupEmailController.text.trim(),
+      'Phone number':           _signupPhoneController.text.trim(),
+      'Hospital / clinic name': _signupHospitalController.text.trim(),
     };
 
-    for (final entry in checks.entries) {
+    for (final entry in required.entries) {
       if (entry.value.isEmpty) {
         _showErrorDialog('${entry.key} is required');
         return false;
@@ -361,32 +328,6 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
           child: const Text('Forgot Password?'),
         ),
         const SizedBox(height: 16),
-        Row(
-          children: [
-            const Expanded(child: Divider()),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text('or', style: TextStyle(color: Colors.grey.shade500)),
-            ),
-            const Expanded(child: Divider()),
-          ],
-        ),
-        const SizedBox(height: 16),
-        OutlinedButton.icon(
-          onPressed: _isGoogleLoading ? null : _signInWithGoogle,
-          icon: _isGoogleLoading
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.g_mobiledata, size: 24),
-          label: const Text('Continue with Google'),
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size(double.infinity, 48),
-          ),
-        ),
-        const SizedBox(height: 8),
         OutlinedButton.icon(
           onPressed: _isAbdmLoading ? null : _loginWithAbdm,
           icon: _isAbdmLoading
@@ -587,7 +528,7 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
 
         // Account type
         DropdownButtonFormField<String>(
-          value: _signupAccountType,
+          value: _signupRole,
           decoration: InputDecoration(
             hintText: 'Account Type',
             prefixIcon: const Icon(Icons.badge),
@@ -599,24 +540,27 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
             DropdownMenuItem(value: 'doctor',            child: Text('Doctor / Physician')),
             DropdownMenuItem(value: 'diagnostic_center', child: Text('Diagnostic Center')),
           ],
-          onChanged: (v) => setState(() => _signupAccountType = v!),
+          onChanged: (v) => setState(() => _signupRole = v!),
         ),
         const SizedBox(height: 12),
 
         _inputField(
           controller: _signupHospitalController,
-          hint: _signupAccountType == 'diagnostic_center'
+          hint: _signupRole == 'diagnostic_center'
               ? 'Diagnostic Center Name'
               : 'Hospital / Clinic Name',
           icon: Icons.local_hospital,
         ),
         const SizedBox(height: 12),
-        _inputField(controller: _signupLicenseController, hint: 'Medical License / Reg. Number',
+        _inputField(controller: _signupLicenseController, hint: 'Medical License / Reg. Number (optional)',
             icon: Icons.verified),
         const SizedBox(height: 12),
-        _inputField(controller: _signupCityController,  hint: 'City',  icon: Icons.location_city),
+        _inputField(controller: _signupCityController,  hint: 'City (optional)',  icon: Icons.location_city),
         const SizedBox(height: 12),
-        _inputField(controller: _signupStateController, hint: 'State', icon: Icons.map),
+        _inputField(controller: _signupStateController, hint: 'State (optional)', icon: Icons.map),
+        const SizedBox(height: 12),
+        _inputField(controller: _signupColposcopeController, hint: 'Colposcope Serial No. (optional)',
+            icon: Icons.camera_alt_outlined),
         const SizedBox(height: 12),
         _inputField(controller: _signupPasswordController,        hint: 'Password',         icon: Icons.lock, obscure: true),
         const SizedBox(height: 12),
@@ -648,6 +592,7 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
     _signupLicenseController.dispose();
     _signupCityController.dispose();
     _signupStateController.dispose();
+    _signupColposcopeController.dispose();
     super.dispose();
   }
 }

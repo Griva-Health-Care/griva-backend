@@ -192,6 +192,9 @@ class UserDao extends DatabaseAccessor<AppDatabase> with _$UserDaoMixin {
       phoneNumber: row.phoneNumber,
       specialization: row.specialization,
       department: row.department,
+      reportHeaderImage: row.reportHeaderImage,
+      reportFooterImage: row.reportFooterImage,
+      useReportHeaderFooter: row.useReportHeaderFooter,
     );
   }
 
@@ -219,6 +222,9 @@ class UserDao extends DatabaseAccessor<AppDatabase> with _$UserDaoMixin {
       phoneNumber: Value(user.phoneNumber),
       specialization: Value(user.specialization),
       department: Value(user.department),
+      reportHeaderImage: Value(user.reportHeaderImage),
+      reportFooterImage: Value(user.reportFooterImage),
+      useReportHeaderFooter: Value(user.useReportHeaderFooter),
     );
   }
 

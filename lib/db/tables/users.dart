@@ -25,4 +25,9 @@ class Users extends Table {
   TextColumn get phoneNumber => text().named('phone_number').nullable()();
   TextColumn get specialization => text().nullable()();
   TextColumn get department => text().nullable()();
+
+  TextColumn get reportHeaderImage => text().named('report_header_image').nullable()();
+  TextColumn get reportFooterImage => text().named('report_footer_image').nullable()();
+  BoolColumn get useReportHeaderFooter =>
+      boolean().named('use_report_header_footer').withDefault(const Constant(false))();
 }

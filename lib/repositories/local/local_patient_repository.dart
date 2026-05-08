@@ -9,7 +9,7 @@ import '../i_patient_repository.dart';
 /// cloud sync.  When cloud sync is enabled, a [SyncedPatientRepository]
 /// (to be built in Phase 5) will wrap this class and push changes upstream.
 class LocalPatientRepository implements IPatientRepository {
-  LocalPatientRepository() : _dao = PatientDao(AppDatabase());
+  LocalPatientRepository() : _dao = PatientDao(AppDatabase.instance);
 
   final PatientDao _dao;
 

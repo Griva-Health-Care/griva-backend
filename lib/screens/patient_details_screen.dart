@@ -13,6 +13,7 @@ import '../new_patient_form.dart';
 import 'report_pdf_viewer_screen.dart';
 import '../exam_screen.dart';
 import '../image_edit_screen.dart';
+import '../diagnosis_page.dart';
 
 
 class PatientDetailsScreen extends StatefulWidget {
@@ -175,6 +176,9 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
                               case 'edit':
                                 _navigateToEdit();
                                 break;
+                              case 'report':
+                                _generateReport();
+                                break;
                               case 'delete':
                                 _confirmAndDelete();
                                 break;
@@ -188,6 +192,16 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
                                   Icon(Icons.edit, size: 18, color: Colors.grey),
                                   SizedBox(width: 12),
                                   Text('Edit', style: TextStyle(color: Colors.grey)),
+                                ],
+                              ),
+                            ),
+                            PopupMenuItem<String>(
+                              value: 'report',
+                              child: Row(
+                                children: const [
+                                  Icon(Icons.description_outlined, size: 18, color: Color(0xFF8B44F7)),
+                                  SizedBox(width: 12),
+                                  Text('Generate Report', style: TextStyle(color: Color(0xFF8B44F7))),
                                 ],
                               ),
                             ),
@@ -235,25 +249,44 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
                          ),
                          const SizedBox(width: 20),
                          const Spacer(),
-                         // Action Button
-                         ElevatedButton.icon(
-                           onPressed: () {
-                             // Navigate to exam screen
-                             Navigator.push(
-                               context,
-                               MaterialPageRoute(builder: (_) => const PiCameraScreen()),
-                             );
-                           },
-                           icon: const Icon(Icons.add, size: 18),
-                           label: const Text('Start New Scan'),
-                           style: ElevatedButton.styleFrom(
-                             backgroundColor: const Color(0xFF8B44F7),
-                             foregroundColor: Colors.white,
-                             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                             shape: RoundedRectangleBorder(
-                               borderRadius: BorderRadius.circular(8),
+                         // Action Buttons
+                         Wrap(
+                           spacing: 8,
+                           runSpacing: 8,
+                           children: [
+                             ElevatedButton.icon(
+                               onPressed: _generateReport,
+                               icon: const Icon(Icons.description_outlined, size: 18),
+                               label: const Text('Generate Report'),
+                               style: ElevatedButton.styleFrom(
+                                 backgroundColor: Colors.white,
+                                 foregroundColor: const Color(0xFF8B44F7),
+                                 side: const BorderSide(color: Color(0xFF8B44F7)),
+                                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                 shape: RoundedRectangleBorder(
+                                   borderRadius: BorderRadius.circular(8),
+                                 ),
+                               ),
                              ),
-                           ),
+                             ElevatedButton.icon(
+                               onPressed: () {
+                                 Navigator.push(
+                                   context,
+                                   MaterialPageRoute(builder: (_) => const PiCameraScreen()),
+                                 );
+                               },
+                               icon: const Icon(Icons.add, size: 18),
+                               label: const Text('Start New Scan'),
+                               style: ElevatedButton.styleFrom(
+                                 backgroundColor: const Color(0xFF8B44F7),
+                                 foregroundColor: Colors.white,
+                                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                 shape: RoundedRectangleBorder(
+                                   borderRadius: BorderRadius.circular(8),
+                                 ),
+                               ),
+                             ),
+                           ],
                          ),
                        ],
                      ),
@@ -539,6 +572,41 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
           );
         }
       }
+    }
+  }
+
+  Future<void> _generateReport() async {
+    // Show loading while images are fetched
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF8B44F7)),
+        ),
+      ),
+    );
+
+    try {
+      final List<Uint8List> imageBytes = [];
+      for (final path in _examinationImages) {
+        final bytes = await ImageService.loadImage(path);
+        if (bytes != null) imageBytes.add(bytes);
+      }
+      if (!mounted) return;
+      Navigator.of(context).pop(); // dismiss loader
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DiagnosisPage(patient: _patient, images: imageBytes, saveImages: false),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop(); // dismiss loader
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load images: $e')),
+      );
     }
   }
 

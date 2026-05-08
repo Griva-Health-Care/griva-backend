@@ -1,11 +1,8 @@
-import 'dart:io';
-
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:google_sign_in/google_sign_in.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../cloud/cloud_registry.dart';
 import '../core/config.dart';
 import '../repositories/repository_factory.dart';
 import 'cloud_config_service.dart';
@@ -15,7 +12,6 @@ import 'sync_engine.dart';
 import 'user_service.dart' as app_user;
 
 class AuthService {
-  final SupabaseClient _supabase = Supabase.instance.client;
   final app_user.UserService _userService = app_user.UserService();
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
@@ -25,17 +21,13 @@ class AuthService {
   Future<bool> login(String email, String password) async {
     debugPrint('[AUTH] Login attempt: $email');
     try {
-      final response = await _supabase.auth.signInWithPassword(
-        email:    email.trim(),
-        password: password,
-      );
-      if (response.user == null) throw Exception('Authentication failed');
+      await CloudRegistry.instance.auth.signInWithPassword(email, password);
 
+      final meta = CloudRegistry.instance.auth.currentUserMetadata;
       await _upsertLocalUser(
         email:    email,
         password: password,
-        fullName: response.user!.userMetadata?['full_name'] as String? ??
-                  email.split('@').first,
+        fullName: meta['full_name'] as String? ?? email.split('@').first,
         role:     'doctor',
         isActive: true,
       );
@@ -44,15 +36,13 @@ class AuthService {
       await _postLoginInit();
       debugPrint('[AUTH] Login successful');
       return true;
-    } on AuthException catch (e) {
-      debugPrint('[AUTH] Supabase error: ${e.message}');
-      if (e.message.toLowerCase().contains('network') ||
-          e.message.toLowerCase().contains('connection')) {
+    } catch (e) {
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('network') || msg.contains('connection') ||
+          msg.contains('socket')) {
         return await _offlineLogin(email, password);
       }
-      throw Exception(_authErrorMessage(e.message));
-    } catch (e, st) {
-      debugPrint('[AUTH] Login failed: $e\n$st');
+      debugPrint('[AUTH] Login failed: $e');
       rethrow;
     }
   }
@@ -90,12 +80,11 @@ class AuthService {
       _pendingHospital = hospital;
       _pendingRole     = role;
 
-      final response = await _supabase.auth.signUp(
-        email:    email.trim(),
-        password: password,
-        data:     {'full_name': name},
+      await CloudRegistry.instance.auth.signUp(
+        email,
+        password,
+        metadata: {'full_name': name},
       );
-      if (response.user == null) throw Exception('Registration failed');
 
       await _upsertLocalUser(
         email:    email,
@@ -106,11 +95,6 @@ class AuthService {
       );
       debugPrint('[AUTH] Registration successful');
       return true;
-    } on AuthException catch (e) {
-      debugPrint('[AUTH] Supabase error: ${e.message}');
-      _pendingHospital = null;
-      _pendingRole     = null;
-      throw Exception(_authErrorMessage(e.message));
     } catch (e) {
       debugPrint('[AUTH] Registration failed: $e');
       _pendingHospital = null;
@@ -119,60 +103,23 @@ class AuthService {
     }
   }
 
-  // ================= GOOGLE SIGN-IN =================
-  Future<GoogleSignInResult> signInWithGoogle() async {
-    if (Platform.isLinux) throw Exception('Google sign-in not supported on Linux');
-
-    final googleUser = await GoogleSignIn().signIn();
-    if (googleUser == null) return GoogleSignInResult.cancelled();
-
-    final googleAuth = await googleUser.authentication;
-    if (googleAuth.idToken == null) throw Exception('Failed to get Google ID token');
-
-    final response = await _supabase.auth.signInWithIdToken(
-      provider:    OAuthProvider.google,
-      idToken:     googleAuth.idToken!,
-      accessToken: googleAuth.accessToken,
-    );
-
-    final user = response.user;
-    if (user == null) throw Exception('Google sign-in failed');
-
-    await _upsertLocalUser(
-      email:    user.email    ?? '',
-      password: user.id,
-      fullName: user.userMetadata?['full_name'] as String? ??
-                googleUser.displayName ?? '',
-      role:     'doctor',
-      isActive: true,
-    );
-
-    await _secureStorage.write(
-      key:   _sessionEmailKey,
-      value: (user.email ?? '').trim().toLowerCase(),
-    );
-
-    await _postLoginInit();
-
-    final profileComplete =
-        await ProfileService.instance.isProfileComplete(user.id);
-
-    return GoogleSignInResult(
-      email:        user.email         ?? '',
-      displayName:  user.userMetadata?['full_name'] as String? ??
-                    googleUser.displayName ?? '',
-      needsProfile: !profileComplete,
-    );
-  }
-
   // ================= FORGOT PASSWORD =================
   Future<void> sendPasswordResetEmail(String email) async {
-    await _supabase.auth.resetPasswordForEmail(email.trim());
+    await CloudRegistry.instance.auth.resetPassword(email);
+  }
+
+  // ================= SESSION EMAIL =================
+  Future<String?> getSessionEmail() async {
+    final cloud = CloudRegistry.instance.auth;
+    if (cloud.isSignedIn && (cloud.currentUserEmail?.isNotEmpty ?? false)) {
+      return cloud.currentUserEmail;
+    }
+    return _secureStorage.read(key: _sessionEmailKey);
   }
 
   // ================= LOGOUT =================
   Future<void> logout() async {
-    await _supabase.auth.signOut();
+    await CloudRegistry.instance.auth.signOut();
     await _secureStorage.delete(key: _sessionEmailKey);
     await SessionService.instance.clear();
     SyncEngine.instance.stop();
@@ -184,14 +131,14 @@ class AuthService {
   // ================= AUTO LOGIN =================
   Future<String?> tryAutoLogin() async {
     try {
-      final session = _supabase.auth.currentSession;
-      if (session != null && !_isTokenExpired(session)) {
-        final email = session.user.email ?? '';
+      final auth = CloudRegistry.instance.auth;
+      if (auth.isSignedIn) {
+        final email = auth.currentUserEmail ?? '';
         if (email.isNotEmpty) {
           await _secureStorage.write(key: _sessionEmailKey, value: email);
         }
         await _postLoginInit();
-        debugPrint('[AUTH] Auto-login: Supabase session valid for $email');
+        debugPrint('[AUTH] Auto-login: cloud session valid for $email');
         return email.isNotEmpty ? email : null;
       }
 
@@ -205,36 +152,11 @@ class AuthService {
           return savedEmail;
         }
       }
-
       return null;
     } catch (e) {
       debugPrint('[AUTH] Auto-login failed: $e');
       return null;
     }
-  }
-
-  bool _isTokenExpired(Session session) {
-    final expiry = session.expiresAt;
-    if (expiry == null) return false;
-    return DateTime.fromMillisecondsSinceEpoch(expiry * 1000)
-        .isBefore(DateTime.now());
-  }
-
-  // ================= ERROR MESSAGES =================
-  String _authErrorMessage(String message) {
-    final m = message.toLowerCase();
-    if (m.contains('invalid login') || m.contains('invalid credentials') ||
-        m.contains('wrong password'))      return 'Incorrect email or password.';
-    if (m.contains('user not found') ||
-        m.contains('no user found'))       return 'No account found with this email.';
-    if (m.contains('already registered') ||
-        m.contains('already exists'))      return 'This email is already registered. Please sign in instead.';
-    if (m.contains('weak password') ||
-        m.contains('at least 6'))          return 'Password is too weak. Use at least 8 characters.';
-    if (m.contains('invalid email'))       return 'Invalid email address.';
-    if (m.contains('too many'))            return 'Too many failed attempts. Please try again later.';
-    if (m.contains('disabled'))            return 'This account has been disabled. Contact support.';
-    return 'Authentication failed. Please try again.';
   }
 
   // ================= POST-LOGIN INIT =================
@@ -249,9 +171,7 @@ class AuthService {
     final config = await CloudConfigService.instance.fetch(doctorId);
     RepositoryFactory.configure(cloudSyncEnabled: config.cloudSyncEnabled);
 
-    if (config.cloudSyncEnabled) {
-      SyncEngine.instance.start();
-    }
+    if (config.cloudSyncEnabled) SyncEngine.instance.start();
 
     debugPrint('[AUTH] Post-login init complete — '
         'doctorId=$doctorId, cloudSync=${config.cloudSyncEnabled}');
@@ -259,26 +179,26 @@ class AuthService {
 
   // ================= BACKEND SYNC =================
   Future<void> _registerWithBackend() async {
-    final session = _supabase.auth.currentSession;
-    if (session == null) return;
+    final auth = CloudRegistry.instance.auth;
+    if (!auth.isSignedIn) return;
 
     final hospital = _pendingHospital;
     final role     = _pendingRole;
     _pendingHospital = null;
     _pendingRole     = null;
 
-    await Dio().post(
-      '${Config.piBaseUrl}/users/register',
+    await Dio().put(
+      '${Config.backendUrl}/profile',
       data: {
-        'fullName': session.user.userMetadata?['full_name'],
+        'fullName': auth.currentUserMetadata['full_name'],
         'role':     role ?? 'doctor',
         if (hospital != null && hospital.isNotEmpty) 'hospital': hospital,
       },
       options: Options(
-        headers: {'Authorization': 'Bearer ${session.accessToken}'},
+        headers: {'Authorization': 'Bearer ${auth.accessToken}'},
       ),
     );
-    debugPrint('[AUTH] Backend registration synced for ${session.user.email}');
+    debugPrint('[AUTH] Backend registration synced for ${auth.currentUserEmail}');
   }
 
   // ================= LOCAL DB =================
@@ -310,33 +230,17 @@ class AuthService {
 
     await _userService.createUser(
       app_user.User(
-        fullName:        fullName,
-        email:           normalizedEmail,
-        password:        password,
-        medicalLicense:  'N/A',
-        hospital:        'N/A',
-        role:            role,
-        isActive:        isActive,
-        createdAt:       now,
-        updatedAt:       now,
+        fullName:       fullName,
+        email:          normalizedEmail,
+        password:       password,
+        medicalLicense: 'N/A',
+        hospital:       'N/A',
+        role:           role,
+        isActive:       isActive,
+        createdAt:      now,
+        updatedAt:      now,
       ),
     );
   }
 }
 
-class GoogleSignInResult {
-  final bool   cancelled;
-  final String email;
-  final String displayName;
-  final bool   needsProfile;
-
-  const GoogleSignInResult({
-    this.cancelled    = false,
-    this.email        = '',
-    this.displayName  = '',
-    this.needsProfile = false,
-  });
-
-  factory GoogleSignInResult.cancelled() =>
-      const GoogleSignInResult(cancelled: true);
-}

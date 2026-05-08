@@ -1,35 +1,33 @@
-import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:async';
 
-/// Reads the per-doctor cloud-sync configuration stored in Supabase Postgres.
+import 'package:flutter/foundation.dart';
+
+import '../cloud/cloud_registry.dart';
+
+/// Reads the per-doctor cloud-sync configuration stored in the cloud database.
 ///
-/// Table: node_app.doctor_config (uid PK = Supabase user UUID)
+/// Table: doctor_config (uid PK = auth provider user UUID)
 ///
 /// Fields written by the Griva admin panel:
 ///   cloudSyncEnabled  : bool   — whether this doctor has paid for cloud sync
 ///   role              : String — 'solo' | 'clinic' | 'diagnostic' | 'tele_reporter'
 ///   creditBalance     : int    — prepaid report credits (diagnostic centers only)
-///
-/// This replaces the previous Firestore `doctor_config/{uid}` collection.
 class CloudConfigService {
   CloudConfigService._();
   static final CloudConfigService instance = CloudConfigService._();
 
-  SupabaseClient get _db => Supabase.instance.client;
-
   DoctorConfig _cache = const DoctorConfig();
   DoctorConfig get current => _cache;
 
-  RealtimeChannel? _channel;
+  StreamSubscription<Map<String, dynamic>>? _sub;
 
   /// One-shot fetch. Returns [DoctorConfig] defaults on any error.
   Future<DoctorConfig> fetch(String doctorId) async {
     try {
-      final row = await _db
-          .from('doctor_config')
-          .select()
-          .eq('uid', doctorId)
-          .maybeSingle();
+      final row = await CloudRegistry.instance.database.selectSingle(
+        'doctor_config',
+        eq: {'uid': doctorId},
+      );
       if (row != null) {
         _cache = DoctorConfig.fromMap(row);
         debugPrint('[CONFIG] Fetched config for $doctorId: $_cache');
@@ -41,45 +39,31 @@ class CloudConfigService {
     return _cache;
   }
 
-  /// Real-time stream using Supabase Realtime.
-  /// The returned cancel function should be called on logout.
+  /// Real-time stream — emits whenever the doctor_config row changes.
+  /// Returns a cancel function; call it on logout.
   Future<void Function()> listenForChanges(
     String doctorId, {
     required void Function(DoctorConfig) onChanged,
   }) async {
-    _channel?.unsubscribe();
+    await _sub?.cancel();
 
-    _channel = _db
-        .channel('doctor_config:$doctorId')
-        .onPostgresChanges(
-          event:  PostgresChangeEvent.update,
-          schema: 'node_app',
-          table:  'doctor_config',
-          filter: PostgresChangeFilter(
-            type:  PostgresChangeFilterType.eq,
-            column: 'uid',
-            value: doctorId,
-          ),
-          callback: (payload) {
-            final newRow = payload.newRecord;
-            if (newRow.isNotEmpty) {
-              _cache = DoctorConfig.fromMap(newRow);
-              debugPrint('[CONFIG] Config updated for $doctorId: $_cache');
-              onChanged(_cache);
-            }
-          },
-        )
-        .subscribe();
+    _sub = CloudRegistry.instance.database
+        .watchRow('doctor_config', 'uid', doctorId)
+        .listen((row) {
+      _cache = DoctorConfig.fromMap(row);
+      debugPrint('[CONFIG] Config updated for $doctorId: $_cache');
+      onChanged(_cache);
+    });
 
     return () async {
-      await _channel?.unsubscribe();
-      _channel = null;
+      await _sub?.cancel();
+      _sub = null;
     };
   }
 
   void reset() {
-    _channel?.unsubscribe();
-    _channel = null;
+    _sub?.cancel();
+    _sub = null;
     _cache = const DoctorConfig();
   }
 }
@@ -103,12 +87,6 @@ class DoctorConfig {
     creditBalance:    (map['creditBalance']    as int?)    ??
                       (map['credit_balance']  as int?)    ?? 0,
   );
-
-  Map<String, dynamic> toMap() => {
-    'cloudSyncEnabled': cloudSyncEnabled,
-    'role':             role,
-    'creditBalance':    creditBalance,
-  };
 
   @override
   String toString() =>

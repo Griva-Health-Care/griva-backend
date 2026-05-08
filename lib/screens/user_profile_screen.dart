@@ -1,8 +1,13 @@
-import 'package:flutter/material.dart';
-import '../services/user_service.dart';
-import 'package:image_picker/image_picker.dart';
+import '../../cloud/cloud_registry.dart';
 import 'dart:io';
-import 'package:firebase_storage/firebase_storage.dart';
+
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
+
+
+import '../services/user_service.dart';
 
 class UserProfileScreen extends StatefulWidget {
   final String userEmail;
@@ -44,58 +49,145 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
-  Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
-
-    if (pickedFile != null) {
-      setState(() {
-        _selectedImage = File(pickedFile.path);
-      });
-      // Upload the image and update the user profile
-      await _uploadProfileImage();
-    }
+  void _showImageSourceSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40, height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+              ),
+              const Text('Change Profile Picture',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF8B44F7))),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0xFFF3EDFC),
+                  child: Icon(Icons.photo_library_outlined, color: Color(0xFF8B44F7)),
+                ),
+                title: const Text('Choose from Gallery'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickImage(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0xFFF3EDFC),
+                  child: Icon(Icons.camera_alt_outlined, color: Color(0xFF8B44F7)),
+                ),
+                title: const Text('Take a Photo'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickImage(ImageSource.camera);
+                },
+              ),
+              if (_user?.profileImage != null && _user!.profileImage!.isNotEmpty)
+                ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFFFF0F0),
+                    child: Icon(Icons.delete_outline, color: Colors.redAccent),
+                  ),
+                  title: const Text('Remove Photo', style: TextStyle(color: Colors.redAccent)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _removeProfileImage();
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
-  Future<void> _uploadProfileImage() async {
-    if (_selectedImage == null || _user == null) return;
+  Future<void> _pickImage(ImageSource source) async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(
+      source: source,
+      maxWidth: 512,
+      maxHeight: 512,
+      imageQuality: 85,
+    );
+    if (pickedFile == null) return;
+    await _saveProfileImage(File(pickedFile.path));
+  }
 
-    setState(() {
-      _isLoading = true;
-    });
+  Future<void> _saveProfileImage(File imageFile) async {
+    if (_user == null) return;
+    setState(() => _isLoading = true);
 
     try {
-      // Upload to Firebase Storage
-      final storageRef = FirebaseStorage.instance
-          .ref()
-          .child('profile_images')
-          .child('${_user!.id}_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      // 1. Save a local copy so it always works offline
+      final docsDir = await getApplicationDocumentsDirectory();
+      final profileDir = Directory(p.join(docsDir.path, 'profile_images'));
+      if (!await profileDir.exists()) await profileDir.create(recursive: true);
+      final localPath = p.join(profileDir.path, 'user_${_user!.id}.jpg');
+      await imageFile.copy(localPath);
 
-      final uploadTask = storageRef.putFile(_selectedImage!);
-      final snapshot = await uploadTask.whenComplete(() {});
-      final downloadUrl = await snapshot.ref.getDownloadURL();
+      String imageRef = localPath; // default to local path
 
-      // Update user profile with the image URL
-      final updatedUser = _user!.copyWith(profileImage: downloadUrl);
-      await _userService.updateUser(updatedUser.id!, updatedUser);
+      // 2. Optionally push to cloud storage (non-fatal if it fails)
+      try {
+
+        final remotePath = 'profile_images/${_user!.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        imageRef = await CloudRegistry.instance.storage.upload('profile-images', remotePath, imageFile, contentType: 'image/jpeg');
+
+      } catch (_) {
+        // Cloud storage unavailable — local path is used instead
+      }
+
+      // 3. Persist the reference in the local DB
+      final updated = _user!.copyWith(profileImage: imageRef);
+      await _userService.updateUser(updated.id!, updated);
       await _loadUserProfile();
 
+      setState(() => _selectedImage = File(localPath));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile image updated successfully!')),
+          const SnackBar(content: Text('Profile picture updated!')),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update profile image: $e')),
+          SnackBar(content: Text('Failed to update profile picture: $e')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
 
-    setState(() {
-      _isLoading = false;
-    });
+  Future<void> _removeProfileImage() async {
+    if (_user == null) return;
+    setState(() => _isLoading = true);
+    try {
+      final updated = _user!.copyWith(profileImage: '');
+      await _userService.updateUser(updated.id!, updated);
+      setState(() => _selectedImage = null);
+      await _loadUserProfile();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile picture removed.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -135,27 +227,39 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         child: Column(
                           children: [
                             GestureDetector(
-                              onTap: _pickImage,
-                              child: CircleAvatar(
-                                radius: 48,
-                                backgroundColor: Color(0xFFF3EDFC),
-                                backgroundImage:
-                                    _selectedImage != null
-                                        ? FileImage(_selectedImage!)
+                              onTap: _showImageSourceSheet,
+                              child: Stack(
+                                alignment: Alignment.bottomRight,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 52,
+                                    backgroundColor: const Color(0xFFF3EDFC),
+                                    backgroundImage: _selectedImage != null
+                                        ? FileImage(_selectedImage!) as ImageProvider
                                         : (_user?.profileImage != null &&
-                                            _user!.profileImage!.isNotEmpty)
-                                        ? NetworkImage(_user!.profileImage!)
-                                        : null,
-                                child:
-                                    (_selectedImage == null &&
+                                                _user!.profileImage!.isNotEmpty)
+                                            ? (_user!.profileImage!.startsWith('/')
+                                                ? FileImage(File(_user!.profileImage!)) as ImageProvider
+                                                : NetworkImage(_user!.profileImage!))
+                                            : null,
+                                    child: (_selectedImage == null &&
                                             (_user?.profileImage == null ||
                                                 _user!.profileImage!.isEmpty))
-                                        ? Icon(
-                                          Icons.person,
-                                          size: 48,
-                                          color: Color(0xFF8B44F7),
-                                        )
+                                        ? const Icon(Icons.person, size: 52, color: Color(0xFF8B44F7))
                                         : null,
+                                  ),
+                                  // Camera badge
+                                  Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF8B44F7),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: Colors.white, width: 2),
+                                    ),
+                                    child: const Icon(Icons.camera_alt, color: Colors.white, size: 16),
+                                  ),
+                                ],
                               ),
                             ),
                             const SizedBox(height: 18),

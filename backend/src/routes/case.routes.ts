@@ -1,50 +1,72 @@
 import { Router } from 'express';
 import { getMessaging } from 'firebase-admin/messaging';
 import { fcmInitialized } from '../utils/firebase';
-import { supabaseAdmin } from '../utils/supabase';
+import {
+  uploadToS3, validateMime, validateSize,
+  normalizeIncomingFiles, addPresignedUrls,
+  S3ValidationError, S3UploadError,
+} from '../utils/s3';
 import { prisma } from '../utils/prisma';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { requireRole } from '../middleware/role.middleware';
 import PDFDocument from 'pdfkit';
 import multer from 'multer';
-import path from 'path';
 
 const router = Router();
 
-// ── File upload (Supabase Storage) ────────────────────────────────────────────
+// ── File upload (AWS S3) ───────────────────────────────────────────────────────
 
-// Memory storage so we can stream the buffer to Supabase Storage.
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+// Multer: memory storage, 50 MB hard limit (mirrors S3 util limit)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits:  { fileSize: 50 * 1024 * 1024 },
+});
 
-// POST /cases/upload  — upload one file to Supabase Storage, returns { url, name, type, size }
+// POST /cases/upload — upload one file to S3, returns { url, name, type, size }
+// Multipart field name: "file"
 router.post('/upload', authMiddleware, upload.single('file'), async (req, res) => {
-  if (!req.file) { res.status(400).json({ message: 'No file received' }); return; }
-
-  const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${path.extname(req.file.originalname)}`;
-
-  const { data, error } = await supabaseAdmin.storage
-    .from('tele-cases')
-    .upload(filename, req.file.buffer, {
-      contentType: req.file.mimetype,
-      upsert:      false,
-    });
-
-  if (error) {
-    console.error('[UPLOAD]', error.message);
-    res.status(500).json({ message: 'Upload failed: ' + error.message });
+  if (!req.file) {
+    res.status(400).json({ message: 'No file received. Send a multipart/form-data request with field "file".' });
     return;
   }
 
-  const { data: urlData } = supabaseAdmin.storage
-    .from('tele-cases')
-    .getPublicUrl(data.path);
+  try {
+    // Validate before touching S3 (fast, cheap checks first)
+    validateSize(req.file.size);
+    validateMime(req.file.mimetype);
 
-  res.json({
-    url : urlData.publicUrl,
-    name: filename,
-    type: req.file.mimetype,
-    size: req.file.size,
-  });
+    const { key, url } = await uploadToS3({
+      prefix:       'cases',
+      buffer:       req.file.buffer,
+      originalName: req.file.originalname,
+      mimeType:     req.file.mimetype,
+    });
+
+    res.json({
+      key,                         // permanent S3 key — send this back when submitting a case
+      url,                         // 24-hour presigned GET URL — for immediate display only
+      name: req.file.originalname,
+      type: req.file.mimetype,
+      size: req.file.size,
+    });
+  } catch (err) {
+    if (err instanceof S3ValidationError) {
+      res.status(err.statusCode).json({ message: err.message });
+      return;
+    }
+    if (err instanceof S3UploadError) {
+      console.error('[UPLOAD] S3 error:', err.message);
+      res.status(502).json({ message: 'Storage service error. Please try again.' });
+      return;
+    }
+    // Multer file-size error
+    if ((err as any)?.code === 'LIMIT_FILE_SIZE') {
+      res.status(413).json({ message: 'File exceeds the 50 MB size limit.' });
+      return;
+    }
+    console.error('[UPLOAD] Unexpected error:', err instanceof Error ? err.message : err);
+    res.status(500).json({ message: 'Upload failed. Please try again.' });
+  }
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -180,14 +202,22 @@ router.put('/notifications/:id/read', authMiddleware, async (req, res) => {
 router.post('/', authMiddleware, async (req, res) => {
   try {
     const { userId } = (req as any).user;
-    const { assignedUid, notes, files } = req.body as {
+    const { assignedUid, notes, files: rawFiles } = req.body as {
       assignedUid?: string;
       notes?:       string;
-      files:        Array<{ url: string; name: string; type: string; size: number }>;
+      files:        Array<Record<string, unknown>>;
     };
 
-    if (!Array.isArray(files) || files.length === 0) {
+    if (!Array.isArray(rawFiles) || rawFiles.length === 0) {
       return res.status(400).json({ message: 'At least one file is required' });
+    }
+
+    // Normalize: strip presigned URLs, store only S3 keys + metadata
+    let files: ReturnType<typeof normalizeIncomingFiles>;
+    try {
+      files = normalizeIncomingFiles(rawFiles);
+    } catch (e) {
+      return res.status(400).json({ message: e instanceof Error ? e.message : 'Invalid files payload' });
     }
 
     let resolvedUid: string | null = assignedUid ?? null;
@@ -226,7 +256,7 @@ router.post('/', authMiddleware, async (req, res) => {
     }
 
     res.status(201).json({
-      teleCase,
+      teleCase: { ...teleCase, files: await addPresignedUrls(teleCase.files) },
       autoAssigned: !assignedUid && !!resolvedUid,
       unassigned:   !resolvedUid,
     });
@@ -256,7 +286,10 @@ router.get('/', authMiddleware, async (req, res) => {
       orderBy: { createdAt: 'desc' },
       take:    100,
     });
-    res.json({ cases });
+    const enriched = await Promise.all(
+      cases.map(async (c) => ({ ...c, files: await addPresignedUrls(c.files) })),
+    );
+    res.json({ cases: enriched });
   } catch (error) {
     console.error('[CASE]', error instanceof Error ? error.message : error);
     res.status(500).json({ message: 'Failed to fetch cases' });
@@ -270,7 +303,10 @@ router.get('/pending', authMiddleware, requireRole('admin', 'superadmin'), async
       where:   { status: 'pending' },
       orderBy: { createdAt: 'asc' },
     });
-    res.json({ cases });
+    const enriched = await Promise.all(
+      cases.map(async (c) => ({ ...c, files: await addPresignedUrls(c.files) })),
+    );
+    res.json({ cases: enriched });
   } catch (error) {
     console.error('[CASE]', error instanceof Error ? error.message : error);
     res.status(500).json({ message: 'Failed to fetch pending cases' });
@@ -293,7 +329,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
     if (!isAdmin && !isAssignedReporter && !isSubmitter) {
       return res.status(403).json({ message: 'Access denied' });
     }
-    res.json({ teleCase });
+    res.json({ teleCase: { ...teleCase, files: await addPresignedUrls(teleCase.files) } });
   } catch (error) {
     console.error('[CASE]', error instanceof Error ? error.message : error);
     res.status(500).json({ message: 'Failed to fetch case' });
@@ -405,7 +441,7 @@ router.put('/:id/assign', authMiddleware, requireRole('admin', 'superadmin'), as
       await notify(reporter.id, 'New Case Assigned', 'A new tele-report case has been assigned to you.', id);
     }
 
-    res.json({ teleCase });
+    res.json({ teleCase: { ...teleCase, files: await addPresignedUrls(teleCase.files) } });
   } catch (error) {
     console.error('[CASE]', error instanceof Error ? error.message : error);
     res.status(500).json({ message: 'Failed to assign case' });
@@ -438,7 +474,7 @@ router.put('/:id/status', authMiddleware, async (req, res) => {
       data:  { status, ...(status === 'completed' ? { completedAt: new Date() } : {}) },
     });
 
-    res.json({ teleCase });
+    res.json({ teleCase: { ...teleCase, files: await addPresignedUrls(teleCase.files) } });
   } catch (error) {
     console.error('[CASE]', error instanceof Error ? error.message : error);
     res.status(500).json({ message: 'Failed to update case status' });
@@ -477,7 +513,7 @@ router.post('/:id/report', authMiddleware, async (req, res) => {
       id
     );
 
-    res.json({ teleCase });
+    res.json({ teleCase: { ...teleCase, files: await addPresignedUrls(teleCase.files) } });
   } catch (error) {
     console.error('[CASE]', error instanceof Error ? error.message : error);
     res.status(500).json({ message: 'Failed to submit report' });

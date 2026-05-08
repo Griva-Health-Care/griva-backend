@@ -3,8 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'cloud/backend/backend_database_provider.dart';
+import 'cloud/backend/backend_storage_provider.dart';
+import 'cloud/cloud_registry.dart';
+import 'cloud/firebase/fcm_push_provider.dart';
+import 'cloud/firebase/firebase_auth_provider.dart';
 import 'core/app_router.dart';
 import 'core/config.dart';
 import 'login_page.dart';
@@ -18,27 +22,31 @@ const _teleMode = bool.fromEnvironment('TELE_MODE', defaultValue: false);
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Supabase.initialize(
-    url:     Config.supabaseUrl,
-    anonKey: Config.supabaseAnonKey,
-    authOptions: const FlutterAuthClientOptions(autoRefreshToken: true),
-  );
-
-  // Initialize Firebase for FCM only (not available on Linux).
+  // ── 1. Initialize platform SDKs ──────────────────────────────────────────
   if (!Platform.isLinux) {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
   }
 
+  // ── 2. Wire up cloud providers ────────────────────────────────────────────
+  final backendUrl   = Config.backendUrl;
+  final authProvider = FirebaseAuthProvider();
+  await authProvider.restoreSession(); // re-hydrate cached ID token on startup
+
+  CloudRegistry.instance.configure(
+    auth:     authProvider,
+    database: BackendDatabaseProvider(baseUrl: backendUrl),
+    storage:  BackendStorageProvider(baseUrl: backendUrl),
+    push:     FcmPushProvider(),
+  );
+
   if (_teleMode) {
     runApp(const _TeleRoot());
     return;
   }
 
-  final auth = AuthService();
-
-  runApp(MyApp(authService: auth));
+  runApp(MyApp(authService: AuthService()));
 }
 
 class _TeleRoot extends StatelessWidget {
@@ -86,6 +94,7 @@ class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key, required this.authService});
 
   @override
+  
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
@@ -100,10 +109,9 @@ class _SplashScreenState extends State<SplashScreen> {
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
 
-    final session = Supabase.instance.client.auth.currentSession;
-
-    if (session != null) {
-      AppRouter.navigateToHome(context, userEmail: session.user.email ?? '');
+    final auth = CloudRegistry.instance.auth;
+    if (auth.isSignedIn) {
+      AppRouter.navigateToHome(context, userEmail: auth.currentUserEmail ?? '');
     } else {
       Navigator.pushReplacement(
         context,

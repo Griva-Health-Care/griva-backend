@@ -20,6 +20,9 @@ class User {
   final String? phoneNumber;
   final String? specialization;
   final String? department;
+  final String? reportHeaderImage;
+  final String? reportFooterImage;
+  final bool useReportHeaderFooter;
 
   User({
     this.id,
@@ -37,6 +40,9 @@ class User {
     this.phoneNumber,
     this.specialization,
     this.department,
+    this.reportHeaderImage,
+    this.reportFooterImage,
+    this.useReportHeaderFooter = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -56,6 +62,9 @@ class User {
       'phone_number': phoneNumber,
       'specialization': specialization,
       'department': department,
+      'report_header_image': reportHeaderImage,
+      'report_footer_image': reportFooterImage,
+      'use_report_header_footer': useReportHeaderFooter ? 1 : 0,
     };
   }
 
@@ -89,6 +98,9 @@ class User {
       phoneNumber: map['phone_number'],
       specialization: map['specialization'],
       department: map['department'],
+      reportHeaderImage: map['report_header_image'],
+      reportFooterImage: map['report_footer_image'],
+      useReportHeaderFooter: (map['use_report_header_footer'] ?? 0) == 1,
     );
   }
 
@@ -108,6 +120,9 @@ class User {
     String? phoneNumber,
     String? specialization,
     String? department,
+    String? reportHeaderImage,
+    String? reportFooterImage,
+    bool? useReportHeaderFooter,
   }) {
     return User(
       id: id ?? this.id,
@@ -125,12 +140,15 @@ class User {
       phoneNumber: phoneNumber ?? this.phoneNumber,
       specialization: specialization ?? this.specialization,
       department: department ?? this.department,
+      reportHeaderImage: reportHeaderImage ?? this.reportHeaderImage,
+      reportFooterImage: reportFooterImage ?? this.reportFooterImage,
+      useReportHeaderFooter: useReportHeaderFooter ?? this.useReportHeaderFooter,
     );
   }
 }
 
 class UserService {
-  static final AppDatabase _db = AppDatabase();
+  static final AppDatabase _db = AppDatabase.instance;
   static final UserDao _dao = UserDao(_db);
 
   // Authentication methods

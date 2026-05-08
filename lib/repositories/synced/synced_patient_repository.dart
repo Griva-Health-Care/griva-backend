@@ -23,6 +23,10 @@ class SyncedPatientRepository implements IPatientRepository {
 
   final LocalPatientRepository _local;
 
+  /// Exposed so callers that need direct local-DB access (e.g. image linking)
+  /// can reach the underlying SQLite repository regardless of sync mode.
+  LocalPatientRepository get local => _local;
+
   /// Optional callback for tests to intercept queue writes.
   /// In production this is null and [SyncEngine] is used directly.
   final void Function(

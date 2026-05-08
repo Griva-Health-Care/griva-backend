@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'dart:typed_data';
 import 'ui_constants.dart';
 import 'data_swede_score.dart';
 import 'feature_row.dart';
 
 class SwedeScoreModal extends StatefulWidget {
-  const SwedeScoreModal({super.key});
+  final List<Uint8List> images;
+  const SwedeScoreModal({super.key, this.images = const []});
 
   @override
   State<SwedeScoreModal> createState() => _SwedeScoreModalState();
@@ -99,16 +101,22 @@ class _SwedeScoreModalState extends State<SwedeScoreModal> {
               ),
             ),
             // Fixed Images Row
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
-              decoration: const BoxDecoration(
+            if (widget.images.isNotEmpty)
+              Container(
                 color: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (int i = 0; i < widget.images.length; i++) ...[
+                        _ImageThumbnail(bytes: widget.images[i]),
+                        if (i < widget.images.length - 1) const SizedBox(width: 12),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: List.generate(5, (index) => _ImageThumbnail(index: index)),
-              ),
-            ),
             // Fixed Table Header (inset to match table margins)
             Container(
               decoration: const BoxDecoration(
@@ -241,13 +249,13 @@ class _SwedeScoreModalState extends State<SwedeScoreModal> {
 }
 
 class _ImageThumbnail extends StatelessWidget {
-  final int index;
-  const _ImageThumbnail({required this.index});
+  final Uint8List bytes;
+  const _ImageThumbnail({required this.bytes});
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => _showImageModal(context),
+      onTap: () => _showFullScreen(context),
       child: Container(
         width: 150,
         height: 110,
@@ -257,51 +265,35 @@ class _ImageThumbnail extends StatelessWidget {
           border: Border.all(color: Colors.grey.shade300),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: _getColposcopeImage(),
-      ),
-    );
-  }
-
-  Widget _getColposcopeImage() {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: Image.asset(
-          'assets/images/colposcope_reference.png',
-          fit: BoxFit.cover,
-          width: double.infinity,
-          height: double.infinity,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(bytes, fit: BoxFit.cover),
         ),
       ),
     );
   }
 
-  void _showImageModal(BuildContext context) {
+  void _showFullScreen(BuildContext context) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
         backgroundColor: Colors.transparent,
         child: Stack(
           children: [
-            // Backdrop
             GestureDetector(
               onTap: () => Navigator.of(context).pop(),
               child: Container(
-                color: Colors.black.withOpacity(0.5),
+                color: Colors.black.withValues(alpha: 0.5),
                 width: double.infinity,
                 height: double.infinity,
               ),
             ),
-            // Image only
             Center(
               child: Container(
                 width: MediaQuery.of(context).size.width * 0.8,
@@ -309,32 +301,21 @@ class _ImageThumbnail extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white, width: 2),
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.asset(
-                    'assets/images/colposcope_reference.png',
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    height: double.infinity,
-                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.memory(bytes, fit: BoxFit.contain),
                 ),
               ),
             ),
-            // Close button
             Positioned(
               top: 40,
               right: 40,
               child: IconButton(
                 onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(
-                  Icons.close,
-                  color: Colors.white,
-                  size: 32,
-                ),
+                icon: const Icon(Icons.close, color: Colors.white, size: 32),
                 style: IconButton.styleFrom(
-                  backgroundColor: Colors.black.withOpacity(0.5),
+                  backgroundColor: Colors.black.withValues(alpha: 0.5),
                   shape: const CircleBorder(),
                 ),
               ),

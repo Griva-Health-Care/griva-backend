@@ -1,19 +1,20 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../cloud/cloud_registry.dart';
 
 /// Holds the current authenticated doctor's identity for the lifetime of a
 /// session.
 ///
-/// The canonical doctor ID is the Supabase Auth user UUID — a stable,
+/// The canonical doctor ID is the auth provider's user UUID — a stable,
 /// globally unique string that never changes even if the email is updated.
 /// When the device is offline the last-known UID is read from secure storage
 /// so the same doctor always maps to the same data row — both locally and
 /// in the cloud.
 ///
 /// Call [initialize] after a successful login and [clear] on logout.
-/// Screens and services read [currentDoctorId]; they never touch Supabase
-/// Auth directly.
+/// Screens and services read [currentDoctorId]; they never touch the cloud
+/// auth provider directly.
 class SessionService {
   SessionService._();
   static final SessionService instance = SessionService._();
@@ -24,20 +25,20 @@ class SessionService {
 
   String _doctorId = 'local_legacy';
 
-  /// The current doctor's Supabase UUID (or 'local_legacy' for pre-auth rows).
+  /// The current doctor's provider UUID (or 'local_legacy' for pre-auth rows).
   String get currentDoctorId => _doctorId;
 
   /// Call once after every successful login (online or offline).
   Future<void> initialize() async {
-    final supabaseUser = Supabase.instance.client.auth.currentUser;
-    if (supabaseUser != null) {
-      _doctorId = supabaseUser.id;
+    final uid = CloudRegistry.instance.auth.currentUserId;
+    if (uid != null) {
+      _doctorId = uid;
       await _storage.write(key: _uidKey, value: _doctorId);
-      debugPrint('[SESSION] Initialized from Supabase UID: $_doctorId');
+      debugPrint('[SESSION] Initialized from auth UID: $_doctorId');
       return;
     }
 
-    // Offline login path: Supabase session is absent but local bcrypt
+    // Offline login path: auth session is absent but local bcrypt
     // validation passed. Re-use the last stored UID.
     final stored = await _storage.read(key: _uidKey);
     if (stored != null && stored.isNotEmpty) {

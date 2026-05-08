@@ -5,6 +5,7 @@ import { execSync } from 'child_process';
 import http from 'http';
 import app from './app';
 import { connectWithRetry, prisma } from './utils/prisma';
+import { logS3Config } from './utils/s3';
 
 const PORT = Number(process.env.PORT) || 5000;
 
@@ -23,6 +24,7 @@ async function bootstrap() {
   console.log('[SERVER] Starting...');
 
   runMigrations();
+  logS3Config();
   await connectWithRetry();
 
   const server = http.createServer(app);

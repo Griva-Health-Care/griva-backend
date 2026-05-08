@@ -3,14 +3,16 @@ import 'widgets/centralized_footer.dart';
 
 class CustomDrawer extends StatelessWidget {
   final VoidCallback? onLogout;
-  final VoidCallback? onProfile;
   final VoidCallback? onPatientDatabase;
+  final VoidCallback? onLibrary;
+  final VoidCallback? onSettings;
 
   const CustomDrawer({
     super.key,
     this.onLogout,
-    this.onProfile,
     this.onPatientDatabase,
+    this.onLibrary,
+    this.onSettings,
   });
 
   @override
@@ -37,8 +39,6 @@ class CustomDrawer extends StatelessWidget {
                 _buildDrawerItem(
                   icon: Icons.folder_outlined,
                   title: 'Patient Database',
-                  // backgroundColor: Color(0xFFF5E6FF),
-                  // textColor: Color(0xFF8B44F7),
                   onTap: onPatientDatabase,
                 ),
                 _buildDrawerItem(
@@ -46,17 +46,14 @@ class CustomDrawer extends StatelessWidget {
                   title: 'Reports',
                 ),
                 _buildDrawerItem(
-                  icon: Icons.person_outline,
-                  title: 'Profile',
-                  onTap: onProfile,
+                  icon: Icons.menu_book_outlined,
+                  title: 'Library',
+                  onTap: onLibrary,
                 ),
                 _buildDrawerItem(
                   icon: Icons.settings_outlined,
                   title: 'Settings',
-                ),
-                _buildDrawerItem(
-                  icon: Icons.help_outline,
-                  title: 'Customer support',
+                  onTap: onSettings,
                 ),
               ],
             ),
@@ -94,18 +91,13 @@ class CustomDrawer extends StatelessWidget {
                 (isSelected ? Color(0xFFF5E6FF) : Colors.transparent),
             borderRadius: BorderRadius.circular(4),
           ),
-          margin: EdgeInsets.symmetric(
-            horizontal: 8,
-            vertical: 1,
-          ), // Even tighter vertical spacing
+          margin: EdgeInsets.symmetric(horizontal: 8, vertical: 1),
           child: ListTile(
             leading: Icon(
               icon,
               color:
                   textColor ??
-                  (isSelected
-                      ? Color(0xFF8B44F7)
-                      : Colors.grey[400]), // Lighter grey
+                  (isSelected ? Color(0xFF8B44F7) : Colors.grey[400]),
               size: 20,
             ),
             title: Text(
@@ -120,7 +112,7 @@ class CustomDrawer extends StatelessWidget {
             ),
             dense: true,
             visualDensity: VisualDensity(horizontal: -4, vertical: -4),
-            horizontalTitleGap: 24, // Increased from 8 to 24 for more spacing
+            horizontalTitleGap: 24,
             minLeadingWidth: 20,
             onTap: onTap,
           ),

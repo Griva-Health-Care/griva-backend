@@ -1,17 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
+import '../cloud/cloud_registry.dart';
 import '../db/app_database.dart';
 import '../db/tables/sync_queue.dart';
 import '../services/patient_service.dart' show Patient;
-import 'griva_api_service.dart';
 import 'session_service.dart';
 
-/// Processes the local [SyncQueue] table and pushes each entry to Firestore.
+/// Processes the local [SyncQueue] table and pushes each entry to the cloud
+/// database via [CloudRegistry.instance.database].
 ///
 /// ## Lifecycle
 ///   - Call [start] once after a successful login when cloud sync is enabled.
@@ -20,25 +20,19 @@ import 'session_service.dart';
 /// ## Retry policy
 ///   - Up to [maxAttempts] retries per entry.
 ///   - Entries that exceed [maxAttempts] are left in the queue with their
-///     last error recorded for diagnostics; they are not retried automatically.
-///
-/// ## Connectivity
-///   [SyncEngine] does not watch connectivity itself.  Call [flush] whenever
-///   you know the device has (re-)gained internet access.  The engine also
-///   flushes automatically on a periodic timer while running.
+///     last error recorded; they are not retried automatically.
 class SyncEngine {
   SyncEngine._();
   static final SyncEngine instance = SyncEngine._();
 
-  static const int    maxAttempts     = 5;
+  static const int      maxAttempts   = 5;
   static const Duration flushInterval = Duration(minutes: 2);
 
-  final AppDatabase       _db  = AppDatabase();
-  final FirebaseFirestore _fdb = FirebaseFirestore.instance;
+  final AppDatabase _db = AppDatabase.instance;
 
-  Timer?  _timer;
-  bool    _running  = false;
-  bool    _flushing = false;
+  Timer? _timer;
+  bool   _running  = false;
+  bool   _flushing = false;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -47,7 +41,7 @@ class SyncEngine {
     _running = true;
     _timer   = Timer.periodic(flushInterval, (_) => flush());
     debugPrint('[SYNC_ENGINE] Started');
-    flush(); // immediate first pass
+    flush();
   }
 
   void stop() {
@@ -59,12 +53,10 @@ class SyncEngine {
 
   // ── Queue write ───────────────────────────────────────────────────────────
 
-  /// Enqueue a local write for later cloud push.
-  /// Called by [SyncedPatientRepository] after every local mutation.
   Future<void> enqueue({
-    required String entityType,   // 'patient' | 'media_file'
+    required String entityType,
     required String entityUuid,
-    required String operation,    // 'create' | 'update' | 'delete'
+    required String operation,
     required Map<String, dynamic> payload,
   }) async {
     final now = DateTime.now().toIso8601String();
@@ -82,8 +74,6 @@ class SyncEngine {
 
   // ── Flush ─────────────────────────────────────────────────────────────────
 
-  /// Push all pending queue entries to Firestore.
-  /// Safe to call at any time; re-entrant calls are ignored.
   Future<void> flush() async {
     if (_flushing) return;
     _flushing = true;
@@ -102,7 +92,6 @@ class SyncEngine {
 
     if (rows.isEmpty) return;
     debugPrint('[SYNC_ENGINE] Processing ${rows.length} queued entries');
-
     for (final row in rows) {
       await _processRow(row);
     }
@@ -112,21 +101,15 @@ class SyncEngine {
     final now = DateTime.now().toIso8601String();
     try {
       final payload = jsonDecode(row.payload) as Map<String, dynamic>;
-
       switch (row.entityType) {
         case 'patient':
           await _syncPatient(row.operation, payload);
         default:
           debugPrint('[SYNC_ENGINE] Unknown entityType: ${row.entityType}');
       }
-
-      // Success — remove from queue.
-      await (_db.delete(_db.syncQueue)
-            ..where((t) => t.id.equals(row.id)))
-          .go();
+      await (_db.delete(_db.syncQueue)..where((t) => t.id.equals(row.id))).go();
       debugPrint('[SYNC_ENGINE] ✓ ${row.operation} ${row.entityUuid}');
     } catch (e) {
-      // Failure — increment attempts and record error.
       await (_db.update(_db.syncQueue)..where((t) => t.id.equals(row.id)))
           .write(SyncQueueCompanion(
         attempts:      Value(row.attempts + 1),
@@ -143,52 +126,26 @@ class SyncEngine {
   ) async {
     final doctorId = SessionService.instance.currentDoctorId;
     final patient  = Patient.fromMap(payload);
-    final col      = _fdb
-        .collection('doctors')
-        .doc(doctorId)
-        .collection('patients');
+    final db       = CloudRegistry.instance.database;
 
-    switch (operation) {
-      case 'create':
-      case 'update':
-        await col.doc(patient.uuid).set(
-          payload
-            ..['updatedAt'] = FieldValue.serverTimestamp(),
-          SetOptions(merge: true),
-        );
-      case 'delete':
-        // Soft-delete: push the tombstone so other devices see deletedAt.
-        await col.doc(patient.uuid).set(
-          {
-            'deletedAt': FieldValue.serverTimestamp(),
-            'syncStatus': 'synced',
-          },
-          SetOptions(merge: true),
-        );
+    if (operation == 'delete') {
+      await db.update(
+        'patients',
+        {'deleted_at': DateTime.now().toIso8601String()},
+        eq: {'uuid': patient.uuid},
+      );
+    } else {
+      final hasReport = (patient.finalImpression?.isNotEmpty ?? false) ||
+          (patient.colposcopyFindings?.isNotEmpty ?? false);
+      await db.upsert('patients', {
+        'uuid':         patient.uuid,
+        'patient_name': patient.patientName,
+        'user_id':      doctorId,
+        'has_report':   hasReport,
+      }, onConflict: 'uuid');
     }
 
-    // Also sync to backend for admin reporting (best-effort — never blocks local sync).
-    if (operation != 'delete') {
-      try {
-        final hasReport = (patient.finalImpression?.isNotEmpty ?? false) ||
-            (patient.colposcopyFindings?.isNotEmpty ?? false);
-        await GrivaApiService.instance.syncPatientsToBackend([
-          {
-            'uuid':        patient.uuid,
-            'patientName': patient.patientName,
-            'hasReport':   hasReport,
-          }
-        ]);
-      } catch (e) {
-        debugPrint('[SYNC_ENGINE] Backend patient sync failed (non-fatal): $e');
-      }
-    }
-
-    // Mark the local row as synced.
-    await (_db.update(_db.patients)
-          ..where((t) => t.uuid.equals(patient.uuid)))
-        .write(const PatientsCompanion(
-      syncStatus: Value('synced'),
-    ));
+    await (_db.update(_db.patients)..where((t) => t.uuid.equals(patient.uuid)))
+        .write(const PatientsCompanion(syncStatus: Value('synced')));
   }
 }

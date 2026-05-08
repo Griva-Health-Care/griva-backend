@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../cloud/cloud_registry.dart';
 import '../core/config.dart';
 import '../db/app_database.dart';
 import '../db/daos/tele_case_dao.dart';
@@ -18,7 +18,7 @@ class CreditService {
   CreditService._();
   static final CreditService instance = CreditService._();
 
-  final AppDatabase _db = AppDatabase();
+  final AppDatabase _db = AppDatabase.instance;
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -31,8 +31,9 @@ class CreditService {
   /// Throws on any network/server error.
   /// Returns the created [TeleCase] on success.
   Future<TeleCase> submitCase(TeleCase draft) async {
-    final session = Supabase.instance.client.auth.currentSession;
-    if (session == null) throw Exception('Not signed in');
+    final auth = CloudRegistry.instance.auth;
+    if (!auth.isSignedIn) throw Exception('Not signed in');
+    final session = auth;
 
     if (balance <= 0) throw InsufficientCreditsException();
 
@@ -40,11 +41,12 @@ class CreditService {
       '${Config.piBaseUrl}/credits/submit-case',
       data: {
         'uuid':  draft.uuid,
-        'notes': draft.notes,
+        'notes': draft.submissionNotes,
         'files': [],
       },
       options: Options(
         headers: {'Authorization': 'Bearer ${session.accessToken}'},
+        // session is CloudRegistry.instance.auth — accessToken is provider-agnostic
       ),
     );
 
