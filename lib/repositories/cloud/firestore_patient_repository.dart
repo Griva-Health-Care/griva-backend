@@ -11,7 +11,7 @@ import '../i_patient_repository.dart';
 /// in [CloudRegistry] — this file does not need to change.
 ///
 /// Table: patients — uuid (PK), patient_name, user_id, has_report
-class SupabasePatientRepository implements IPatientRepository {
+class CloudPatientRepository implements IPatientRepository {
   @override
   Future<List<Patient>> getAll(String doctorId) async {
     try {

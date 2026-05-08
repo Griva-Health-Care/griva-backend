@@ -7,7 +7,7 @@ import '../i_auth_provider.dart';
 ///
 /// The Firebase ID token is sent as the Bearer token on every backend request.
 /// The backend verifies it with firebase-admin and maps the Firebase UID to
-/// the User row via the supabaseUid column.
+/// the User row via the uid column.
 class FirebaseAuthProvider implements IAuthProvider {
   FirebaseAuthProvider();
 

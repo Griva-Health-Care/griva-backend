@@ -12,7 +12,7 @@ const PORT = Number(process.env.PORT) || 5000;
 function runMigrations() {
   console.log('[MIGRATE] Running prisma migrate deploy...');
   try {
-    execSync('npx prisma migrate deploy', { stdio: 'inherit' });
+    execSync('node_modules/.bin/prisma migrate deploy', { stdio: 'inherit' });
     console.log('[MIGRATE] Migrations applied successfully');
   } catch (err) {
     console.error('[MIGRATE] Migration failed:', err);

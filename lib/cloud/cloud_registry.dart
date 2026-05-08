@@ -12,7 +12,7 @@ import 'i_storage_provider.dart';
 ///   2. Open [configure] below and swap the constructor — nothing else changes.
 ///
 /// Current stack:
-///   Auth      → BackendAuthProvider
+///   Auth      → FirebaseAuthProvider
 ///   Database  → BackendDatabaseProvider
 ///   Storage   → BackendStorageProvider
 ///   Push      → FcmPushProvider

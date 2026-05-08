@@ -11,7 +11,6 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
 
     const token = authHeader.split(' ')[1] as string;
 
-    // Verify Firebase ID token. uid == supabaseUid column in the User table.
     let firebaseUid: string;
     let tokenEmail: string | undefined;
     try {
@@ -23,22 +22,21 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
       return res.status(401).json({ message: 'Invalid or expired token' });
     }
 
-    // Look up user by Firebase UID (stored in supabaseUid column)
     let user = await prisma.user.findUnique({
-      where:  { supabaseUid: firebaseUid },
-      select: { id: true, role: true, isActive: true, supabaseUid: true },
+      where:  { firebaseUid },
+      select: { id: true, role: true, isActive: true, firebaseUid: true },
     });
 
     // Auto-provision on first backend call for users who signed up via Firebase
     if (!user && tokenEmail) {
       user = await prisma.user.create({
         data: {
-          supabaseUid: firebaseUid,
-          email:       tokenEmail.trim().toLowerCase(),
-          role:        'doctor',
-          isActive:    true,
+          firebaseUid,
+          email:    tokenEmail.trim().toLowerCase(),
+          role:     'doctor',
+          isActive: true,
         },
-        select: { id: true, role: true, isActive: true, supabaseUid: true },
+        select: { id: true, role: true, isActive: true, firebaseUid: true },
       });
       console.log(`[AUTH] Auto-provisioned user: ${tokenEmail}`);
     }
@@ -53,7 +51,7 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
 
     (req as any).user = {
       userId:      user.id,
-      supabaseUid: user.supabaseUid,
+      firebaseUid: user.firebaseUid,
       role:        user.role,
     };
     next();

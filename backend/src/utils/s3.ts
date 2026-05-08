@@ -1,7 +1,6 @@
 import {
   S3Client,
   PutObjectCommand,
-  DeleteObjectCommand,
   GetObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -12,18 +11,10 @@ import path from 'path';
 const REGION = process.env.AWS_REGION ?? 'ap-south-1';
 const BUCKET = process.env.S3_BUCKET  ?? 'griva-media';
 
-// Explicit IAM credentials take priority; falls back to instance-role /
-// default provider chain when the vars are absent.
-const credentialArgs = process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
-  ? {
-      credentials: {
-        accessKeyId:     process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-      },
-    }
-  : {};
-
-const s3 = new S3Client({ region: REGION, ...credentialArgs });
+// No explicit credentials — SDK uses the default provider chain:
+// EC2 IAM Instance Role → ECS task role → ~/.aws/credentials (dev only).
+// Never pass static keys; attach an IAM role to the EC2 instance instead.
+const s3 = new S3Client({ region: REGION });
 
 // ── Limits ─────────────────────────────────────────────────────────────────────
 const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
@@ -172,7 +163,7 @@ export async function addPresignedUrls(files: unknown): Promise<ServedFile[]> {
         return { key, url, name: f['name'] as string, type: f['type'] as string, size: Number(f['size'] ?? 0) };
       }
       // Legacy entry with no extractable key — return as-is so old data doesn't break
-      return f as ServedFile;
+      return f as unknown as ServedFile;
     }),
   );
 }
@@ -201,7 +192,7 @@ export async function uploadToS3(params: {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('InvalidAccessKeyId') || msg.includes('SignatureDoesNotMatch')) {
-      throw new S3UploadError('AWS credentials are invalid. Check AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in .env.');
+      throw new S3UploadError('AWS credentials are invalid. Verify the EC2 IAM role has s3:PutObject on the bucket.');
     }
     if (msg.includes('NoSuchBucket')) {
       throw new S3UploadError(`S3 bucket '${BUCKET}' not found in region '${REGION}'.`);
@@ -218,20 +209,8 @@ export async function uploadToS3(params: {
   return { key, url };
 }
 
-// ── Delete ─────────────────────────────────────────────────────────────────────
-export async function deleteFromS3(key: string): Promise<void> {
-  try {
-    await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[S3] Delete failed:', key, msg);
-    throw new S3UploadError(`Delete failed: ${msg}`);
-  }
-}
-
 // ── Startup log ────────────────────────────────────────────────────────────────
 export function logS3Config(): void {
-  const credsSource = process.env.AWS_ACCESS_KEY_ID ? 'explicit (.env)' : 'default provider chain';
-  console.log(`[S3] region=${REGION}  bucket=${BUCKET}  credentials=${credsSource}  presigned-expiry=24h`);
+  console.log(`[S3] region=${REGION}  bucket=${BUCKET}  credentials=EC2-IAM-role  presigned-expiry=24h`);
   if (!process.env.S3_BUCKET) console.warn('[S3] S3_BUCKET not set — using default: griva-media');
 }

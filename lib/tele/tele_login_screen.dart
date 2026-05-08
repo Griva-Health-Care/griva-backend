@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'tele_app.dart';
 
 /// Entry point for the tele-reporting module.
-/// If the user is already signed in via Supabase, goes straight to TeleApp.
+/// If the user is already signed in, goes straight to TeleApp.
 /// Otherwise shows a prompt to sign in through the main app first.
 class TeleLoginScreen extends StatefulWidget {
   const TeleLoginScreen({super.key});

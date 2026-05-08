@@ -15,7 +15,7 @@ import '../media_file.dart';
 ///
 /// Bucket: patient-media
 /// Path: doctors/{doctorId}/patients/{patientUuid}/{uuid}/{fileName}
-class SupabaseMediaRepository implements IMediaRepository {
+class CloudMediaRepository implements IMediaRepository {
   static const String _bucket = 'patient-media';
 
   String _path(MediaFile f) =>

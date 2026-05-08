@@ -106,28 +106,6 @@ class GrivaApiService {
     return data['user'] as Map<String, dynamic>;
   }
 
-  /// Sets (or changes) the password for [email].
-  /// For Supabase-migrated users with no password yet, [currentPassword] can be omitted.
-  Future<String> setPassword({
-    required String email,
-    required String newPassword,
-    String? currentPassword,
-  }) async {
-    final res = await http
-        .post(
-          Uri.parse('$_base/auth/set-password'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'email':       email,
-            'newPassword': newPassword,
-            if (currentPassword != null) 'currentPassword': currentPassword,
-          }),
-        )
-        .timeout(_timeout);
-    final body = _parse(res);
-    return body['token'] as String;
-  }
-
   // ── Profile ───────────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>?> getProfile() async {
@@ -188,14 +166,14 @@ class GrivaApiService {
   // ── Cases — submit ────────────────────────────────────────────────────────
 
   /// Submit a case with pre-uploaded file metadata.
-  /// Pass [assignedUid] to manually pick a reporter, or omit for auto-assign.
+  /// Pass [assignedFirebaseUid] to manually pick a reporter, or omit for auto-assign.
   Future<GrivaCaseResult> submitCase({
-    String? assignedUid,
+    String? assignedFirebaseUid,
     String? notes,
     required List<GrivaFile> files,
   }) async {
     final data = await _post('/cases', {
-      if (assignedUid != null) 'assignedUid': assignedUid,
+      if (assignedFirebaseUid != null) 'assignedFirebaseUid': assignedFirebaseUid,
       if (notes != null && notes.isNotEmpty) 'notes': notes,
       'files': files.map((f) => f.toJson()).toList(),
     });
@@ -228,8 +206,8 @@ class GrivaApiService {
 
   // ── Cases — assign ────────────────────────────────────────────────────────
 
-  Future<GrivaCase> assignCase(String caseId, String assignedUid) async {
-    final data = await _put('/cases/$caseId/assign', {'assignedUid': assignedUid});
+  Future<GrivaCase> assignCase(String caseId, String assignedFirebaseUid) async {
+    final data = await _put('/cases/$caseId/assign', {'assignedFirebaseUid': assignedFirebaseUid});
     return GrivaCase.fromJson(data['teleCase'] as Map<String, dynamic>);
   }
 
@@ -291,7 +269,7 @@ class GrivaApiException implements Exception {
 
 class GrivaReporter {
   final String id;
-  final String supabaseUid;
+  final String firebaseUid;
   final String? fullName;
   final String email;
   final String? hospital;
@@ -299,7 +277,7 @@ class GrivaReporter {
 
   GrivaReporter.fromJson(Map<String, dynamic> j)
       : id          = j['id'] as String,
-        supabaseUid = (j['supabaseUid'] ?? j['firebaseUid']) as String,
+        firebaseUid = j['firebaseUid'] as String,
         fullName    = j['fullName'] as String?,
         email       = j['email'] as String,
         hospital    = j['hospital'] as String?,
@@ -343,7 +321,7 @@ class GrivaFile {
 class GrivaCase {
   final String id;
   final String submittedBy;
-  final String? assignedUid;
+  final String? assignedFirebaseUid;
   final String? assignedBy;
   final String? notes;
   final List<GrivaFile> files;
@@ -356,7 +334,7 @@ class GrivaCase {
   GrivaCase.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String,
         submittedBy = j['submittedBy'] as String,
-        assignedUid = j['assignedUid'] as String?,
+        assignedFirebaseUid = j['assignedFirebaseUid'] as String?,
         assignedBy = j['assignedBy'] as String?,
         notes = j['notes'] as String?,
         files = ((j['files'] as List?) ?? [])

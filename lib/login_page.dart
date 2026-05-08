@@ -115,22 +115,23 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
           return;
         }
 
-        // Save mandatory profile to Firestore
+        // Best-effort profile save — account is created regardless of outcome.
+        // If the backend is unreachable the user can complete their profile later.
         final uid = CloudRegistry.instance.auth.currentUserId;
         if (uid != null) {
-          await ProfileService.instance.saveProfile(
+          ProfileService.instance.saveProfile(
             uid,
             DoctorProfile(
               fullName:           name,
               phone:              _signupPhoneController.text.trim(),
               hospital:           _signupHospitalController.text.trim(),
-              accountType:        _signupRole,
+              role:               _signupRole,
               licenseNumber:      _signupLicenseController.text.trim(),
               city:               _signupCityController.text.trim(),
               state:              _signupStateController.text.trim(),
               colposcopeSerialNo: _signupColposcopeController.text.trim(),
             ),
-          );
+          ).catchError((e) => debugPrint('[SIGNUP] Profile save deferred: $e'));
         }
 
         _clearSignupForm();
@@ -140,11 +141,21 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
       }
     } catch (e) {
       if (!mounted) return;
-      String errorMessage = 'Signup failed. Please try again.';
-      if (e.toString().contains('409') || e.toString().contains('already exists')) {
-        errorMessage = 'This email is already registered. Please log in instead.';
-      } else if (e.toString().contains('verification failed')) {
-        errorMessage = 'Session verification failed. Please try logging in manually.';
+      debugPrint('[SIGNUP] Error: $e');
+      final err = e.toString();
+      final String errorMessage;
+      if (err.contains('409') || err.contains('already registered') ||
+          err.contains('already exists') || err.contains('email-already-in-use')) {
+        errorMessage = 'This email is already registered. Please sign in instead.';
+      } else if (err.contains('weak-password') || err.contains('at least 6')) {
+        errorMessage = 'Password is too weak. Use at least 8 characters.';
+      } else if (err.contains('invalid-email')) {
+        errorMessage = 'Invalid email address.';
+      } else if (err.contains('network') || err.contains('socket') ||
+                 err.contains('SocketException')) {
+        errorMessage = 'No internet connection. Please try again.';
+      } else {
+        errorMessage = 'Signup failed. Please try again.';
       }
       _showErrorDialog(errorMessage);
     }
@@ -537,8 +548,8 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           ),
           items: const [
-            DropdownMenuItem(value: 'doctor',            child: Text('Doctor / Physician')),
-            DropdownMenuItem(value: 'diagnostic_center', child: Text('Diagnostic Center')),
+            DropdownMenuItem(value: 'doctor',     child: Text('Doctor / Physician')),
+            DropdownMenuItem(value: 'diagnostic', child: Text('Diagnostic Center')),
           ],
           onChanged: (v) => setState(() => _signupRole = v!),
         ),
@@ -546,7 +557,7 @@ class _GrivaLoginPageState extends State<GrivaLoginPage> {
 
         _inputField(
           controller: _signupHospitalController,
-          hint: _signupRole == 'diagnostic_center'
+          hint: _signupRole == 'diagnostic'
               ? 'Diagnostic Center Name'
               : 'Hospital / Clinic Name',
           icon: Icons.local_hospital,

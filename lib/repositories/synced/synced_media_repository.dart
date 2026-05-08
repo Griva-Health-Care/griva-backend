@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-import '../cloud/firebase_media_repository.dart' show SupabaseMediaRepository;
+import '../cloud/firebase_media_repository.dart' show CloudMediaRepository;
 import '../i_media_repository.dart';
 import '../local/local_media_repository.dart';
 import '../media_file.dart';
@@ -13,12 +13,12 @@ import '../media_file.dart';
 class SyncedMediaRepository implements IMediaRepository {
   SyncedMediaRepository({
     LocalMediaRepository?    local,
-    SupabaseMediaRepository? cloud,
+    CloudMediaRepository? cloud,
   })  : _local = local ?? LocalMediaRepository(),
-        _cloud = cloud ?? SupabaseMediaRepository();
+        _cloud = cloud ?? CloudMediaRepository();
 
   final LocalMediaRepository    _local;
-  final SupabaseMediaRepository _cloud;
+  final CloudMediaRepository _cloud;
 
   // ── Queries (always local) ────────────────────────────────────────────────
 

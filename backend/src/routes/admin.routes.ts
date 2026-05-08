@@ -90,13 +90,13 @@ router.get('/overview', ...adminOnly, async (_req, res) => {
         id: true, fullName: true, email: true, role: true,
         hospital: true, phone: true, licenseNumber: true,
         city: true, state: true, colposcopeSerialNo: true,
-        supabaseUid: true, createdAt: true,
+        firebaseUid: true, createdAt: true,
       },
       orderBy: { createdAt: 'asc' },
     });
 
     const userIds    = users.map((u) => u.id);
-    const supabaseUids = users.map((u) => u.supabaseUid);
+    const firebaseUids = users.map((u) => u.firebaseUid);
 
     // Patient counts per user
     const patientCounts = await prisma.patient.groupBy({
@@ -127,12 +127,12 @@ router.get('/overview', ...adminOnly, async (_req, res) => {
 
     // Fetch profiles from Postgres (replaces Firestore doctor_profiles collection)
     const profileRows = await (prisma as any).doctorProfile.findMany({
-      where: { uid: { in: supabaseUids } },
+      where: { firebaseUid: { in: firebaseUids } },
     });
-    const profileMap = new Map(profileRows.map((p: any) => [p.uid, p]));
+    const profileMap = new Map(profileRows.map((p: any) => [p.firebaseUid, p]));
 
     const rows = users.map((u) => {
-      const profile      = profileMap.get(u.supabaseUid) as Record<string, any> | undefined;
+      const profile      = profileMap.get(u.firebaseUid) as Record<string, any> | undefined;
       const patientCount = patientCountMap.get(u.id) ?? 0;
       const reportCount  = u.role === 'diagnostic'
         ? (teleCountMap.get(u.id) ?? 0)

@@ -8,34 +8,33 @@ const router = Router();
 const adminOnly = [authMiddleware, requireRole('admin', 'superadmin')];
 
 // POST /credits/topup — add credits to a doctor's DoctorConfig and log the transaction
-// Body: { doctorUid: string, amount: number, reason?: string }
-// doctorUid = Supabase user UUID of the doctor
+// Body: { doctorFirebaseUid: string, amount: number, reason?: string }
 router.post('/topup', ...adminOnly, async (req, res) => {
   try {
     const { userId } = (req as any).user;
-    const { doctorUid, amount, reason } = req.body as {
-      doctorUid: string;
-      amount:    number;
-      reason?:   string;
+    const { doctorFirebaseUid, amount, reason } = req.body as {
+      doctorFirebaseUid: string;
+      amount:            number;
+      reason?:           string;
     };
 
-    if (!doctorUid || typeof amount !== 'number' || amount <= 0 || !Number.isInteger(amount)) {
-      return res.status(400).json({ message: 'doctorUid required and amount must be a positive integer' });
+    if (!doctorFirebaseUid || typeof amount !== 'number' || amount <= 0 || !Number.isInteger(amount)) {
+      return res.status(400).json({ message: 'doctorFirebaseUid required and amount must be a positive integer' });
     }
 
     let newBalance: number;
 
     await (prisma as any).$transaction(async (tx: any) => {
       const config = await tx.doctorConfig.upsert({
-        where:  { uid: doctorUid },
+        where:  { firebaseUid: doctorFirebaseUid },
         update: { creditBalance: { increment: amount } },
-        create: { uid: doctorUid, creditBalance: amount, updatedAt: new Date() },
+        create: { firebaseUid: doctorFirebaseUid, creditBalance: amount, updatedAt: new Date() },
       });
       newBalance = config.creditBalance;
 
       await tx.creditTransaction.create({
         data: {
-          doctorUid,
+          doctorFirebaseUid,
           delta:       amount,
           reason:      reason ?? 'admin_topup',
           adminUserId: userId,
@@ -43,46 +42,46 @@ router.post('/topup', ...adminOnly, async (req, res) => {
       });
     });
 
-    res.json({ doctorUid, newBalance: newBalance! });
+    res.json({ doctorFirebaseUid, newBalance: newBalance! });
   } catch (error) {
     console.error('[CREDIT]', error instanceof Error ? error.message : error);
     res.status(500).json({ message: 'Top-up failed' });
   }
 });
 
-// GET /credits/balance/:doctorUid — read current balance from DoctorConfig
-router.get('/balance/:doctorUid', authMiddleware, async (req, res) => {
+// GET /credits/balance/:doctorFirebaseUid — read current balance from DoctorConfig
+router.get('/balance/:doctorFirebaseUid', authMiddleware, async (req, res) => {
   try {
     const { role, userId } = (req as any).user;
-    const doctorUid = req.params['doctorUid'] as string;
+    const doctorFirebaseUid = req.params['doctorFirebaseUid'] as string;
 
     // Doctors/diagnostics can only read their own balance; admins can read any
     if (role === 'doctor' || role === 'diagnostic') {
       const self = await prisma.user.findUnique({
         where:  { id: userId },
-        select: { supabaseUid: true },
+        select: { firebaseUid: true },
       });
-      if (self?.supabaseUid !== doctorUid) {
+      if (self?.firebaseUid !== doctorFirebaseUid) {
         return res.status(403).json({ message: 'Cannot read another account balance' });
       }
     }
 
-    const config  = await (prisma as any).doctorConfig.findUnique({ where: { uid: doctorUid } });
+    const config  = await (prisma as any).doctorConfig.findUnique({ where: { firebaseUid: doctorFirebaseUid } });
     const balance = (config?.creditBalance as number) ?? 0;
 
-    res.json({ doctorUid, balance });
+    res.json({ doctorFirebaseUid, balance });
   } catch (error) {
     console.error('[CREDIT]', error instanceof Error ? error.message : error);
     res.status(500).json({ message: 'Failed to fetch balance' });
   }
 });
 
-// GET /credits/transactions/:doctorUid — ledger history (admin only)
-router.get('/transactions/:doctorUid', ...adminOnly, async (req, res) => {
+// GET /credits/transactions/:doctorFirebaseUid — ledger history (admin only)
+router.get('/transactions/:doctorFirebaseUid', ...adminOnly, async (req, res) => {
   try {
-    const doctorUid = req.params['doctorUid'] as string;
+    const doctorFirebaseUid = req.params['doctorFirebaseUid'] as string;
     const transactions = await prisma.creditTransaction.findMany({
-      where:   { doctorUid },
+      where:   { doctorFirebaseUid },
       orderBy: { createdAt: 'desc' },
       take:    100,
     });
@@ -94,11 +93,11 @@ router.get('/transactions/:doctorUid', ...adminOnly, async (req, res) => {
 });
 
 // POST /credits/submit-case — atomically deduct one credit and create a TeleCase.
-// Used by diagnostic center Flutter app (replaces the old Firestore transaction).
+// Used by diagnostic center Flutter app.
 // Body: { uuid?: string, notes?: string, files?: array }
 router.post('/submit-case', authMiddleware, requireRole('diagnostic'), async (req, res) => {
   try {
-    const { userId, supabaseUid } = (req as any).user;
+    const { userId, firebaseUid } = (req as any).user;
     const { uuid, notes, files } = req.body as {
       uuid?:  string;
       notes?: string;
@@ -109,13 +108,13 @@ router.post('/submit-case', authMiddleware, requireRole('diagnostic'), async (re
 
     await (prisma as any).$transaction(async (tx: any) => {
       // 1. Check and decrement credit balance
-      const config = await tx.doctorConfig.findUnique({ where: { uid: supabaseUid } });
+      const config = await tx.doctorConfig.findUnique({ where: { firebaseUid } });
       if (!config || config.creditBalance <= 0) {
         throw new Error('INSUFFICIENT_CREDITS');
       }
 
       await tx.doctorConfig.update({
-        where: { uid: supabaseUid },
+        where: { firebaseUid },
         data:  { creditBalance: { decrement: 1 } },
       });
 
@@ -132,10 +131,10 @@ router.post('/submit-case', authMiddleware, requireRole('diagnostic'), async (re
       // 3. Log the deduction
       await tx.creditTransaction.create({
         data: {
-          doctorUid: supabaseUid,
-          delta:     -1,
-          reason:    'case_submission',
-          caseUuid:  teleCase.id,
+          doctorFirebaseUid: firebaseUid,
+          delta:             -1,
+          reason:            'case_submission',
+          caseUuid:          teleCase.id,
         },
       });
     });

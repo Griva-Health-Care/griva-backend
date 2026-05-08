@@ -11,7 +11,7 @@ import 'session_service.dart';
 
 /// Manages prepaid report credits for diagnostic center accounts.
 ///
-/// Credits live in Supabase Postgres (`node_app.doctor_config.creditBalance`).
+/// Credits live in Postgres (`node_app.doctor_config.creditBalance`).
 /// The backend handles the atomic deduction transaction — the Flutter app just
 /// calls `POST /credits/submit-case` and handles the response.
 class CreditService {
@@ -77,7 +77,7 @@ class CreditService {
     return saved;
   }
 
-  /// Re-fetch the config from Supabase and update the local cache.
+  /// Re-fetch the config from the backend and update the local cache.
   Future<void> refreshBalance() async {
     final doctorId = SessionService.instance.currentDoctorId;
     await CloudConfigService.instance.fetch(doctorId);

@@ -141,7 +141,7 @@ class _GalleryTeleReportSheetState extends State<GalleryTeleReportSheet> {
       setState(() => _statusLabel = 'Submitting case to backend…');
 
       final result = await GrivaApiService.instance.submitCase(
-        assignedUid: _selectedReporter?.supabaseUid,
+        assignedFirebaseUid: _selectedReporter?.firebaseUid,
         notes      : _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
         files      : uploaded,
       );

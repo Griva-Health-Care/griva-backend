@@ -34,7 +34,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
   final _stateCtrl       = TextEditingController();
   final _colposcopeCtrl  = TextEditingController();
 
-  String _accountType = 'doctor';
+  String _role  = 'doctor';
   bool   _isSaving    = false;
 
   @override
@@ -67,7 +67,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
         fullName:           _nameCtrl.text.trim(),
         phone:              _phoneCtrl.text.trim(),
         hospital:           _hospitalCtrl.text.trim(),
-        accountType:        _accountType,
+        role:               _role,
         licenseNumber:      _licenseCtrl.text.trim(),
         city:               _cityCtrl.text.trim(),
         state:              _stateCtrl.text.trim(),
@@ -142,20 +142,20 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
 
                   // Account type selector
                   DropdownButtonFormField<String>(
-                    value: _accountType,
+                    value: _role,
                     decoration: _inputDecoration('Account Type', Icons.badge),
                     items: const [
-                      DropdownMenuItem(value: 'doctor',            child: Text('Doctor / Physician')),
-                      DropdownMenuItem(value: 'diagnostic_center', child: Text('Diagnostic Center')),
+                      DropdownMenuItem(value: 'doctor',     child: Text('Doctor / Physician')),
+                      DropdownMenuItem(value: 'diagnostic', child: Text('Diagnostic Center')),
                     ],
-                    onChanged: (v) => setState(() => _accountType = v!),
+                    onChanged: (v) => setState(() => _role = v!),
                     validator: _required('Account type'),
                   ),
                   const SizedBox(height: 16),
 
                   _field(
                     controller: _hospitalCtrl,
-                    label: _accountType == 'diagnostic_center'
+                    label: _role == 'diagnostic'
                         ? 'Diagnostic Center Name'
                         : 'Hospital / Clinic Name',
                     icon: Icons.local_hospital,

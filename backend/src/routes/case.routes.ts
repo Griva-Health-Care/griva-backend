@@ -75,15 +75,15 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
 async function autoAssign(): Promise<string | null> {
   const reporters = await prisma.user.findMany({
     where:  { role: 'tele_reporter', isActive: true, isAvailable: true },
-    select: { supabaseUid: true },
+    select: { firebaseUid: true },
   });
   if (!reporters.length) return null;
 
   const counts = await Promise.all(
     reporters.map(async (r) => ({
-      uid:   r.supabaseUid,
+      uid:   r.firebaseUid,
       count: await prisma.teleCase.count({
-        where: { assignedUid: r.supabaseUid, status: { not: 'completed' } },
+        where: { assignedFirebaseUid: r.firebaseUid, status: { not: 'completed' } },
       }),
     }))
   );
@@ -133,11 +133,10 @@ router.get('/reporters', authMiddleware, async (_req, res) => {
   try {
     const reporters = await prisma.user.findMany({
       where:   { role: 'tele_reporter', isActive: true },
-      select:  { id: true, fullName: true, email: true, hospital: true, supabaseUid: true, isAvailable: true },
+      select:  { id: true, fullName: true, email: true, hospital: true, firebaseUid: true, isAvailable: true },
       orderBy: { fullName: 'asc' },
     });
-    // Return supabaseUid as the reporter identifier (Flutter uses it for case assignment)
-    const mapped = reporters.map((r) => ({ ...r, firebaseUid: r.supabaseUid }));
+    const mapped = reporters.map((r) => ({ ...r }));
     res.json({ reporters: mapped });
   } catch (error) {
     console.error('[CASE]', error instanceof Error ? error.message : error);
@@ -202,10 +201,10 @@ router.put('/notifications/:id/read', authMiddleware, async (req, res) => {
 router.post('/', authMiddleware, async (req, res) => {
   try {
     const { userId } = (req as any).user;
-    const { assignedUid, notes, files: rawFiles } = req.body as {
-      assignedUid?: string;
-      notes?:       string;
-      files:        Array<Record<string, unknown>>;
+    const { assignedFirebaseUid, notes, files: rawFiles } = req.body as {
+      assignedFirebaseUid?: string;
+      notes?:               string;
+      files:                Array<Record<string, unknown>>;
     };
 
     if (!Array.isArray(rawFiles) || rawFiles.length === 0) {
@@ -220,34 +219,34 @@ router.post('/', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: e instanceof Error ? e.message : 'Invalid files payload' });
     }
 
-    let resolvedUid: string | null = assignedUid ?? null;
-    let assignedBy:  string        = userId;
-    if (!resolvedUid) {
-      resolvedUid = await autoAssign();
-      assignedBy  = 'auto';
+    let resolvedFirebaseUid: string | null = assignedFirebaseUid ?? null;
+    let assignedBy:          string        = userId;
+    if (!resolvedFirebaseUid) {
+      resolvedFirebaseUid = await autoAssign();
+      assignedBy          = 'auto';
     }
 
     const teleCase = await prisma.teleCase.create({
       data: {
-        submittedBy: userId,
-        assignedUid: resolvedUid ?? null,
-        assignedBy:  resolvedUid ? assignedBy : null,
-        notes:       notes ?? null,
-        files,
-        status:      resolvedUid ? 'assigned' : 'pending',
+        submittedBy:         userId,
+        assignedFirebaseUid: resolvedFirebaseUid ?? null,
+        assignedBy:          resolvedFirebaseUid ? assignedBy : null,
+        notes:               notes ?? null,
+        files: files as unknown as import('@prisma/client').Prisma.JsonArray,
+        status:              resolvedFirebaseUid ? 'assigned' : 'pending',
       },
     });
 
     // Notify the submitter that their case was received.
-    const submitterMsg = resolvedUid
+    const submitterMsg = resolvedFirebaseUid
       ? 'Your case has been assigned to a reporter and is under review.'
       : 'Your case is queued. An admin will assign a reporter shortly.';
     await notify(userId, 'Case Submitted', submitterMsg, teleCase.id);
 
     // If a reporter was auto-assigned, notify them too.
-    if (resolvedUid) {
+    if (resolvedFirebaseUid) {
       const reporter = await prisma.user.findFirst({
-        where:  { supabaseUid: resolvedUid },
+        where:  { firebaseUid: resolvedFirebaseUid },
         select: { id: true },
       });
       if (reporter) {
@@ -257,8 +256,8 @@ router.post('/', authMiddleware, async (req, res) => {
 
     res.status(201).json({
       teleCase: { ...teleCase, files: await addPresignedUrls(teleCase.files) },
-      autoAssigned: !assignedUid && !!resolvedUid,
-      unassigned:   !resolvedUid,
+      autoAssigned: !assignedFirebaseUid && !!resolvedFirebaseUid,
+      unassigned:   !resolvedFirebaseUid,
     });
   } catch (error) {
     console.error('[CASE]', error instanceof Error ? error.message : error);
@@ -269,14 +268,14 @@ router.post('/', authMiddleware, async (req, res) => {
 // GET /cases — list cases (role-scoped)
 router.get('/', authMiddleware, async (req, res) => {
   try {
-    const { userId, role, supabaseUid } = (req as any).user;
+    const { userId, role, firebaseUid } = (req as any).user;
     const { status } = req.query as { status?: string };
 
     const where: Record<string, unknown> =
       role === 'admin' || role === 'superadmin'
         ? {}
         : role === 'tele_reporter'
-        ? { assignedUid: supabaseUid }
+        ? { assignedFirebaseUid: firebaseUid }
         : { submittedBy: userId };
 
     if (status) where.status = status;
@@ -316,14 +315,14 @@ router.get('/pending', authMiddleware, requireRole('admin', 'superadmin'), async
 // GET /cases/:id — full case detail
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
-    const { userId, role, supabaseUid } = (req as any).user;
+    const { userId, role, firebaseUid } = (req as any).user;
     const id = req.params['id'] as string;
 
     const teleCase = await prisma.teleCase.findUnique({ where: { id } });
     if (!teleCase) return res.status(404).json({ message: 'Case not found' });
 
     const isAdmin            = role === 'admin' || role === 'superadmin';
-    const isAssignedReporter = role === 'tele_reporter' && teleCase.assignedUid === supabaseUid;
+    const isAssignedReporter = role === 'tele_reporter' && teleCase.assignedFirebaseUid === firebaseUid;
     const isSubmitter        = teleCase.submittedBy === userId;
 
     if (!isAdmin && !isAssignedReporter && !isSubmitter) {
@@ -339,14 +338,14 @@ router.get('/:id', authMiddleware, async (req, res) => {
 // GET /cases/:id/report/pdf — generate and stream a PDF of the completed report
 router.get('/:id/report/pdf', authMiddleware, async (req, res) => {
   try {
-    const { userId, role, supabaseUid } = (req as any).user;
+    const { userId, role, firebaseUid } = (req as any).user;
     const id = req.params['id'] as string;
 
     const teleCase = await prisma.teleCase.findUnique({ where: { id } });
     if (!teleCase) return res.status(404).json({ message: 'Case not found' });
 
     const isAdmin            = role === 'admin' || role === 'superadmin';
-    const isAssignedReporter = role === 'tele_reporter' && teleCase.assignedUid === supabaseUid;
+    const isAssignedReporter = role === 'tele_reporter' && teleCase.assignedFirebaseUid === firebaseUid;
     const isSubmitter        = teleCase.submittedBy === userId;
     if (!isAdmin && !isAssignedReporter && !isSubmitter) {
       return res.status(403).json({ message: 'Access denied' });
@@ -421,20 +420,20 @@ router.put('/:id/assign', authMiddleware, requireRole('admin', 'superadmin'), as
   try {
     const { userId } = (req as any).user;
     const id = req.params['id'] as string;
-    const { assignedUid } = req.body as { assignedUid: string };
+    const { assignedFirebaseUid } = req.body as { assignedFirebaseUid: string };
 
-    if (!assignedUid) {
-      return res.status(400).json({ message: 'assignedUid is required' });
+    if (!assignedFirebaseUid) {
+      return res.status(400).json({ message: 'assignedFirebaseUid is required' });
     }
 
     const teleCase = await prisma.teleCase.update({
       where: { id },
-      data:  { assignedUid, assignedBy: userId, status: 'assigned' },
+      data:  { assignedFirebaseUid, assignedBy: userId, status: 'assigned' },
     });
 
     await notify(teleCase.submittedBy, 'Case Assigned', 'Your case has been assigned to a reporter.', id);
     const reporter = await prisma.user.findFirst({
-      where:  { supabaseUid: assignedUid },
+      where:  { firebaseUid: assignedFirebaseUid },
       select: { id: true },
     });
     if (reporter) {
@@ -451,7 +450,7 @@ router.put('/:id/assign', authMiddleware, requireRole('admin', 'superadmin'), as
 // PUT /cases/:id/status — reporter or admin updates status
 router.put('/:id/status', authMiddleware, async (req, res) => {
   try {
-    const { role, supabaseUid } = (req as any).user;
+    const { role, firebaseUid } = (req as any).user;
     const id = req.params['id'] as string;
     const { status } = req.body as { status: string };
 
@@ -464,7 +463,7 @@ router.put('/:id/status', authMiddleware, async (req, res) => {
     if (!existing) return res.status(404).json({ message: 'Case not found' });
 
     const isAdmin            = role === 'admin' || role === 'superadmin';
-    const isAssignedReporter = role === 'tele_reporter' && existing.assignedUid === supabaseUid;
+    const isAssignedReporter = role === 'tele_reporter' && existing.assignedFirebaseUid === firebaseUid;
     if (!isAdmin && !isAssignedReporter) {
       return res.status(403).json({ message: 'Insufficient permissions' });
     }
@@ -484,7 +483,7 @@ router.put('/:id/status', authMiddleware, async (req, res) => {
 // POST /cases/:id/report — reporter submits findings
 router.post('/:id/report', authMiddleware, async (req, res) => {
   try {
-    const { role, supabaseUid } = (req as any).user;
+    const { role, firebaseUid } = (req as any).user;
     const id = req.params['id'] as string;
     const { reporterNote } = req.body as { reporterNote: string };
 
@@ -496,7 +495,7 @@ router.post('/:id/report', authMiddleware, async (req, res) => {
     if (!existing) return res.status(404).json({ message: 'Case not found' });
 
     const isAdmin            = role === 'admin' || role === 'superadmin';
-    const isAssignedReporter = role === 'tele_reporter' && existing.assignedUid === supabaseUid;
+    const isAssignedReporter = role === 'tele_reporter' && existing.assignedFirebaseUid === firebaseUid;
     if (!isAdmin && !isAssignedReporter) {
       return res.status(403).json({ message: 'Only the assigned reporter can submit findings' });
     }

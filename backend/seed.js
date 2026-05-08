@@ -1,136 +1,119 @@
-// One-shot seed script — creates admin@gmail.com / admin123 for local testing.
+// One-shot seed script — creates a superadmin user for local testing / first deployment.
 // Run once from the backend directory:
 //   node seed.js
 //
+// Requires: FIREBASE_PROJECT_ID and either FIREBASE_CONFIG (JSON string)
+//           or GOOGLE_APPLICATION_CREDENTIALS (path to service account JSON).
 // Safe to re-run — skips creation if the user already exists.
 
 require('dotenv').config();
-const { createClient } = require('@supabase/supabase-js');
 
-const SUPABASE_URL        = process.env.SUPABASE_URL;
-const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
+const admin  = require('firebase-admin');
+const { PrismaClient } = require('@prisma/client');
 
-if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) {
-  console.error('[SEED] SUPABASE_URL or SUPABASE_SECRET_KEY not set in .env');
+// ── Firebase Admin initialisation ─────────────────────────────────────────────
+const projectId = process.env.FIREBASE_PROJECT_ID;
+if (!projectId) {
+  console.error('[SEED] FIREBASE_PROJECT_ID not set in .env');
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+let credential;
+const configJson = process.env.FIREBASE_CONFIG;
+if (configJson && configJson.trim().startsWith('{')) {
+  credential = admin.credential.cert(JSON.parse(configJson));
+} else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+  credential = admin.credential.applicationDefault();
+} else {
+  console.error('[SEED] Set FIREBASE_CONFIG (JSON string) or GOOGLE_APPLICATION_CREDENTIALS (file path)');
+  process.exit(1);
+}
 
-const SEED_EMAIL    = 'admin@gmail.com';
-const SEED_PASSWORD = 'admin123';
-const SEED_NAME     = 'Griva Admin';
+admin.initializeApp({ credential, projectId });
+
+// ── Prisma ────────────────────────────────────────────────────────────────────
+const prisma = new PrismaClient();
+
+const SEED_EMAIL = 'admin@grivahealth.com';
+const SEED_NAME  = 'Griva Admin';
 
 async function seed() {
   console.log('[SEED] Starting...');
 
-  // ── 1. Create Supabase Auth user ──────────────────────────────────────────
-  let supabaseUid;
+  // ── 1. Get or create Firebase Auth user ────────────────────────────────────
+  let firebaseUid;
 
-  const { data: existing } = await supabase.auth.admin.listUsers();
-  const existingUser = existing?.users?.find(u => u.email === SEED_EMAIL);
-
-  if (existingUser) {
-    console.log(`[SEED] Auth user already exists — uid: ${existingUser.id}`);
-    supabaseUid = existingUser.id;
-  } else {
-    const { data, error } = await supabase.auth.admin.createUser({
-      email:             SEED_EMAIL,
-      password:          SEED_PASSWORD,
-      email_confirm:     true,
-      user_metadata:     { full_name: SEED_NAME },
-    });
-    if (error) {
-      console.error('[SEED] Failed to create auth user:', error.message);
+  try {
+    const existing = await admin.auth().getUserByEmail(SEED_EMAIL);
+    console.log(`[SEED] Firebase user already exists — uid: ${existing.uid}`);
+    firebaseUid = existing.uid;
+  } catch (err) {
+    if (err.code !== 'auth/user-not-found') {
+      console.error('[SEED] Firebase lookup failed:', err.message);
       process.exit(1);
     }
-    supabaseUid = data.user.id;
-    console.log(`[SEED] Auth user created — uid: ${supabaseUid}`);
+
+    // User does not exist — create without a password (admins log in via Firebase console or link)
+    const created = await admin.auth().createUser({
+      email:         SEED_EMAIL,
+      displayName:   SEED_NAME,
+      emailVerified: true,
+    });
+    firebaseUid = created.uid;
+    console.log(`[SEED] Firebase user created — uid: ${firebaseUid}`);
   }
 
-  // ── 2. Upsert doctor_profiles (public schema) ─────────────────────────────
-  const { error: profileError } = await supabase
-    .from('doctor_profiles')
-    .upsert({
-      uid:           supabaseUid,
+  // ── 2. Upsert node_app.User ────────────────────────────────────────────────
+  const user = await prisma.user.upsert({
+    where:  { firebaseUid },
+    update: { role: 'superadmin', isActive: true, fullName: SEED_NAME },
+    create: {
+      firebaseUid,
+      email:    SEED_EMAIL,
+      fullName: SEED_NAME,
+      role:     'superadmin',
+      isActive: true,
+    },
+  });
+  console.log(`[SEED] node_app.User upserted — id: ${user.id}`);
+
+  // ── 3. Upsert public.doctor_profiles ──────────────────────────────────────
+  await prisma.doctorProfile.upsert({
+    where:  { firebaseUid },
+    update: { fullName: SEED_NAME, hospital: 'Griva HQ', role: 'doctor' },
+    create: {
+      firebaseUid,
       fullName:      SEED_NAME,
-      phone:         '',
       hospital:      'Griva HQ',
-      accountType:   'admin',
+      role:          'doctor',
       licenseNumber: 'ADMIN-001',
-      city:          '',
-      state:         '',
-    }, { onConflict: 'uid' });
+    },
+  });
+  console.log('[SEED] doctor_profiles upserted');
 
-  if (profileError) {
-    console.error('[SEED] doctor_profiles upsert failed:', profileError.message);
-  } else {
-    console.log('[SEED] doctor_profiles upserted');
-  }
-
-  // ── 3. Upsert doctor_config (public schema) ───────────────────────────────
-  const { error: configError } = await supabase
-    .from('doctor_config')
-    .upsert({
-      uid:              supabaseUid,
+  // ── 4. Upsert public.doctor_config ────────────────────────────────────────
+  await prisma.doctorConfig.upsert({
+    where:  { firebaseUid },
+    update: { creditBalance: 999, cloudSyncEnabled: true, role: 'admin' },
+    create: {
+      firebaseUid,
+      creditBalance:    999,
       cloudSyncEnabled: true,
       role:             'admin',
-      creditBalance:    999,
-    }, { onConflict: 'uid' });
-
-  if (configError) {
-    console.error('[SEED] doctor_config upsert failed:', configError.message);
-  } else {
-    console.log('[SEED] doctor_config upserted');
-  }
-
-  // ── 4. Upsert node_app.User via raw SQL ───────────────────────────────────
-  const { error: userError } = await supabase.rpc('seed_admin_user', {
-    p_supabase_uid: supabaseUid,
-    p_email:        SEED_EMAIL,
-    p_full_name:    SEED_NAME,
+    },
   });
-
-  // If the RPC doesn't exist yet, fall back to a direct insert attempt.
-  if (userError) {
-    console.warn('[SEED] RPC seed_admin_user not found — inserting directly into node_app.users');
-    const { error: rawError } = await supabase
-      .schema('node_app')
-      .from('User')
-      .upsert({
-        supabase_uid: supabaseUid,
-        email:        SEED_EMAIL,
-        full_name:    SEED_NAME,
-        role:         'admin',
-        is_active:    true,
-        is_available: true,
-      }, { onConflict: 'supabase_uid' });
-
-    if (rawError) {
-      console.warn('[SEED] Direct insert also failed:', rawError.message);
-      console.warn('[SEED] Run this SQL manually in Supabase SQL editor:');
-      console.warn(`
-INSERT INTO node_app."User" ("supabaseUid", email, "fullName", role, "isActive", "isAvailable")
-VALUES ('${supabaseUid}', '${SEED_EMAIL}', '${SEED_NAME}', 'admin', true, true)
-ON CONFLICT ("supabaseUid") DO UPDATE SET role = 'admin';
-      `);
-    } else {
-      console.log('[SEED] node_app.User upserted');
-    }
-  } else {
-    console.log('[SEED] node_app.User upserted via RPC');
-  }
+  console.log('[SEED] doctor_config upserted');
 
   console.log('\n[SEED] Done.');
-  console.log(`  Email   : ${SEED_EMAIL}`);
-  console.log(`  Password: ${SEED_PASSWORD}`);
-  console.log(`  Role    : admin`);
-  console.log(`  UID     : ${supabaseUid}`);
+  console.log(`  Email      : ${SEED_EMAIL}`);
+  console.log(`  Role       : superadmin`);
+  console.log(`  FirebaseUID: ${firebaseUid}`);
+  console.log('\n  NOTE: Set a password via Firebase Console or use a password-reset link.');
 }
 
-seed().catch(e => {
-  console.error('[SEED] Unexpected error:', e);
-  process.exit(1);
-});
+seed()
+  .catch(e => {
+    console.error('[SEED] Unexpected error:', e);
+    process.exit(1);
+  })
+  .finally(() => prisma.$disconnect());

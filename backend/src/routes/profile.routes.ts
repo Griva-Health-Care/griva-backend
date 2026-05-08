@@ -7,9 +7,9 @@ const router = Router();
 // ── GET /profile ───────────────────────────────────────────────────────────────
 router.get('/', authMiddleware, async (req, res) => {
   try {
-    const { supabaseUid } = (req as any).user;
+    const { firebaseUid } = (req as any).user;
     const profile = await (prisma as any).doctorProfile.findUnique({
-      where: { uid: supabaseUid },
+      where: { firebaseUid },
     });
     res.json({ profile: profile ?? null });
   } catch (error) {
@@ -25,7 +25,7 @@ router.get('/', authMiddleware, async (req, res) => {
 // Optional: licenseNumber, city, state, colposcopeSerialNo
 router.put('/', authMiddleware, async (req, res) => {
   try {
-    const { userId, supabaseUid } = (req as any).user;
+    const { userId, firebaseUid } = (req as any).user;
     const {
       fullName, phone, hospital, role,
       licenseNumber, city, state, colposcopeSerialNo,
@@ -58,9 +58,9 @@ router.put('/', authMiddleware, async (req, res) => {
 
     const [profile] = await Promise.all([
       (prisma as any).doctorProfile.upsert({
-        where:  { uid: supabaseUid },
+        where:  { firebaseUid },
         update: profileData,
-        create: { uid: supabaseUid, ...profileData },
+        create: { firebaseUid, ...profileData },
       }),
       Object.keys(userPatch).length > 0
         ? prisma.user.update({ where: { id: userId }, data: userPatch })
@@ -77,13 +77,13 @@ router.put('/', authMiddleware, async (req, res) => {
 // ── GET /profile/config ────────────────────────────────────────────────────────
 router.get('/config', authMiddleware, async (req, res) => {
   try {
-    const { supabaseUid } = (req as any).user;
+    const { firebaseUid } = (req as any).user;
     const config = await (prisma as any).doctorConfig.findUnique({
-      where: { uid: supabaseUid },
+      where: { firebaseUid },
     });
     res.json({
       config: config ?? {
-        uid:              supabaseUid,
+        firebaseUid,
         cloudSyncEnabled: false,
         role:             'solo',
         creditBalance:    0,
