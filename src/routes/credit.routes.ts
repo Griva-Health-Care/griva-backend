@@ -9,22 +9,22 @@ const router = Router();
 const adminOnly = [authMiddleware, requireRole('admin', 'superadmin')];
 
 // POST /credits/topup — add credits to a doctor's Firestore config and log the transaction
-// Body: { doctorUid: string, amount: number, reason?: string }
+// Body: { doctorFirebaseUid: string, amount: number, reason?: string }
 router.post('/topup', ...adminOnly, async (req, res) => {
   try {
     const { userId } = (req as any).user;
-    const { doctorUid, amount, reason } = req.body as {
-      doctorUid: string;
+    const { doctorFirebaseUid, amount, reason } = req.body as {
+      doctorFirebaseUid: string;
       amount: number;
       reason?: string;
     };
 
-    if (!doctorUid || typeof amount !== 'number' || amount <= 0 || !Number.isInteger(amount)) {
-      return res.status(400).json({ message: 'doctorUid required and amount must be a positive integer' });
+    if (!doctorFirebaseUid || typeof amount !== 'number' || amount <= 0 || !Number.isInteger(amount)) {
+      return res.status(400).json({ message: 'doctorFirebaseUid required and amount must be a positive integer' });
     }
 
     const fdb = admin.firestore();
-    const configRef = fdb.collection('doctor_config').doc(doctorUid);
+    const configRef = fdb.collection('doctor_config').doc(doctorFirebaseUid);
 
     let newBalance: number;
 
@@ -37,25 +37,25 @@ router.post('/topup', ...adminOnly, async (req, res) => {
 
     await prisma.creditTransaction.create({
       data: {
-        doctorUid,
+        doctorFirebaseUid,
         delta: amount,
         reason: reason ?? 'admin_topup',
         adminUserId: userId,
       },
     });
 
-    res.json({ doctorUid, newBalance: newBalance! });
+    res.json({ doctorFirebaseUid, newBalance: newBalance! });
   } catch (error) {
     console.error('[CREDIT]', error instanceof Error ? error.message : error);
     res.status(500).json({ message: 'Top-up failed' });
   }
 });
 
-// GET /credits/balance/:doctorUid — read current balance from Firestore
-router.get('/balance/:doctorUid', authMiddleware, async (req, res) => {
+// GET /credits/balance/:doctorFirebaseUid — read current balance from Firestore
+router.get('/balance/:doctorFirebaseUid', authMiddleware, async (req, res) => {
   try {
     const { role, userId } = (req as any).user;
-    const doctorUid = req.params['doctorUid'] as string;
+    const doctorFirebaseUid = req.params['doctorFirebaseUid'] as string;
 
     // Doctors can only read their own balance; admins can read any
     if (role === 'doctor' || role === 'diagnostic') {
@@ -63,27 +63,27 @@ router.get('/balance/:doctorUid', authMiddleware, async (req, res) => {
         where: { id: userId },
         select: { firebaseUid: true },
       });
-      if (self?.firebaseUid !== doctorUid) {
+      if (self?.firebaseUid !== doctorFirebaseUid) {
         return res.status(403).json({ message: 'Cannot read another account balance' });
       }
     }
 
-    const snap = await admin.firestore().collection('doctor_config').doc(doctorUid).get();
+    const snap = await admin.firestore().collection('doctor_config').doc(doctorFirebaseUid).get();
     const balance = (snap.data()?.creditBalance as number) ?? 0;
 
-    res.json({ doctorUid, balance });
+    res.json({ doctorFirebaseUid, balance });
   } catch (error) {
     console.error('[CREDIT]', error instanceof Error ? error.message : error);
     res.status(500).json({ message: 'Failed to fetch balance' });
   }
 });
 
-// GET /credits/transactions/:doctorUid — ledger history (admin only)
-router.get('/transactions/:doctorUid', ...adminOnly, async (req, res) => {
+// GET /credits/transactions/:doctorFirebaseUid — ledger history (admin only)
+router.get('/transactions/:doctorFirebaseUid', ...adminOnly, async (req, res) => {
   try {
-    const doctorUid = req.params['doctorUid'] as string;
+    const doctorFirebaseUid = req.params['doctorFirebaseUid'] as string;
     const transactions = await prisma.creditTransaction.findMany({
-      where: { doctorUid },
+      where: { doctorFirebaseUid },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });

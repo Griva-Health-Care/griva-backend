@@ -1,6 +1,5 @@
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["multiSchema"]
 }
 
 datasource db {
@@ -9,87 +8,75 @@ datasource db {
 }
 
 model User {
-  id              String   @id @default(uuid())
-  firebaseUid     String   @unique
-  email           String   @unique
-  fullName        String?
-
-  role            String   @default("doctor")
-  hospital        String?
-
-  phoneNumber     String?
-  city            String?
-  state           String?
-
-  medicalLicense  String?
-  colposcopeSn    String?
-
-  isActive        Boolean  @default(true)
-  isAvailable     Boolean  @default(true)
-
-  abhaNumber      String?  @unique
-  abhaAddress     String?  @unique
-  hprId           String?
-  abdmLinked      Boolean  @default(false)
-
-  fcmToken        String?
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  abdmSession     AbdmSession?
-  patients        Patient[]
+  id                 String       @id @default(uuid())
+  email              String       @unique
+  fullName           String?
+  role               String       @default("doctor")
+  hospital           String?
+  isActive           Boolean      @default(true)
+  isAvailable        Boolean      @default(true)
+  abhaNumber         String?      @unique
+  abhaAddress        String?      @unique
+  hprId              String?
+  abdmLinked         Boolean      @default(false)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  fcmToken           String?
+  firebaseUid        String       @unique(map: "User_supabaseUid_key")
+  phone              String?
+  licenseNumber      String?
+  city               String?
+  state              String?
+  colposcopeSerialNo String?
+  abdmSession        AbdmSession?
+  patients           Patient[]
 
   @@schema("node_app")
 }
 
-// Lightweight patient record synced from the Flutter app.
-// Stores only identity + report flag — full clinical data stays on-device.
 model Patient {
   id          String   @id @default(uuid())
-  uuid        String   @unique           // stable cross-device UUID from Flutter
+  uuid        String   @unique
   patientName String
-  userId      String                     // FK → User.id (doctor or diagnostic center)
-  hasReport   Boolean  @default(false)   // true once a PDF report has been generated
+  userId      String
+  hasReport   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@schema("node_app")
 }
 
-// Tracks every credit top-up or deduction for a doctor account.
 model CreditTransaction {
-  id          String   @id @default(uuid())
-  doctorUid   String
-  delta       Int
-  reason      String
-  adminUserId String?
-  caseUuid    String?
-  createdAt   DateTime @default(now())
+  id                String   @id @default(uuid())
+  doctorFirebaseUid String
+  delta             Int
+  reason            String
+  adminUserId       String?
+  caseUuid          String?
+  createdAt         DateTime @default(now())
 
-  @@index([doctorUid])
+  @@index([doctorFirebaseUid], map: "CreditTransaction_doctorUid_idx")
   @@index([createdAt])
   @@schema("node_app")
 }
 
 model TeleCase {
-  id            String    @id @default(uuid())
-  submittedBy   String                        // User.id of submitter
-  assignedUid   String?                       // Firebase UID of assigned reporter (null = unassigned)
-  assignedBy    String?                       // User.id of admin who manually assigned, or "auto"
-  notes         String?
-  files         Json      @default("[]")      // [{ url, name, type, size }]
-  status        String    @default("pending") // pending | assigned | in_review | completed
-  reporterNote  String?                       // findings written by the tele_reporter
-  completedAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                  String    @id @default(uuid())
+  submittedBy         String
+  assignedFirebaseUid String?
+  assignedBy          String?
+  notes               String?
+  files               Json      @default("[]")
+  status              String    @default("pending")
+  reporterNote        String?
+  completedAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([submittedBy])
-  @@index([assignedUid])
+  @@index([assignedFirebaseUid], map: "TeleCase_assignedUid_idx")
   @@index([status])
   @@index([createdAt])
   @@schema("node_app")
@@ -107,14 +94,12 @@ model AuditLog {
   @@schema("node_app")
 }
 
-// In-app notifications delivered to a specific user.
-// Created by the backend when case status changes (assigned, completed).
 model Notification {
   id        String   @id @default(uuid())
-  userId    String                        // User.id of recipient
+  userId    String
   title     String
   body      String
-  caseId    String?                       // optional link back to the TeleCase
+  caseId    String?
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
 
@@ -123,18 +108,41 @@ model Notification {
   @@schema("node_app")
 }
 
-// Stores per-user ABDM OAuth tokens after ABHA creation or login.
-// One row per user — upserted each time a new token is issued.
 model AbdmSession {
   id           String   @id @default(uuid())
-  userId       String   @unique             // FK → User.id
-  accessToken  String                       // ABDM user-level bearer token
-  refreshToken String?                      // provided by some ABDM flows
-  expiresAt    DateTime                     // token expiry (typically +10 min)
+  userId       String   @unique
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("node_app")
+}
+
+model doctor_config {
+  uid              String   @id
+  cloudSyncEnabled Boolean  @default(false)
+  role             String   @default("solo")
+  creditBalance    Int      @default(0)
+  updatedAt        DateTime @default(now())
+
+  @@schema("node_app")
+}
+
+model doctor_profiles {
+  uid                String   @id
+  fullName           String   @default("")
+  phone              String   @default("")
+  hospital           String   @default("")
+  accountType        String   @default("")
+  licenseNumber      String   @default("")
+  city               String   @default("")
+  state              String   @default("")
+  colposcopeSerialNo String   @default("")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @default(now())
 
   @@schema("node_app")
 }

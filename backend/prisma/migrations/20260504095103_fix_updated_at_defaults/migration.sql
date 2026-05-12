@@ -1,5 +1,0 @@
--- AlterTable
-ALTER TABLE "doctor_config" ALTER COLUMN "updatedAt" SET DEFAULT CURRENT_TIMESTAMP;
-
--- AlterTable
-ALTER TABLE "doctor_profiles" ALTER COLUMN "updatedAt" SET DEFAULT CURRENT_TIMESTAMP;
