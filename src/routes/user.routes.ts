@@ -4,15 +4,22 @@ import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();
 
+const fullProfileSelect = {
+  id: true, email: true, fullName: true, role: true, hospital: true,
+  phone: true, licenseNumber: true, city: true, state: true,
+  colposcopeSerialNo: true, isActive: true, firebaseUid: true,
+  isAvailable: true, createdAt: true, updatedAt: true,
+} as const;
+
 // POST /users/register — idempotent upsert after Firebase sign-up
 // Called by the Flutter app immediately after a successful Firebase registration.
 router.post('/register', authMiddleware, async (req, res) => {
   try {
-    const { firebaseUid, userId } = (req as any).user;
-    const { fullName, hospital, role } = req.body as {
-      fullName?: string;
-      hospital?: string;
-      role?: string;
+    const { userId } = (req as any).user;
+    const { fullName, hospital, role, phone, licenseNumber, city, state, colposcopeSerialNo } = req.body as {
+      fullName?: string; hospital?: string; role?: string;
+      phone?: string; licenseNumber?: string; city?: string;
+      state?: string; colposcopeSerialNo?: string;
     };
 
     const safeRole = ['doctor', 'diagnostic', 'tele_reporter'].includes(role ?? '')
@@ -24,9 +31,14 @@ router.post('/register', authMiddleware, async (req, res) => {
       data: {
         ...(fullName !== undefined && { fullName }),
         ...(hospital !== undefined && { hospital }),
+        ...(phone !== undefined && { phone }),
+        ...(licenseNumber !== undefined && { licenseNumber }),
+        ...(city !== undefined && { city }),
+        ...(state !== undefined && { state }),
+        ...(colposcopeSerialNo !== undefined && { colposcopeSerialNo }),
         role: safeRole,
       },
-      select: { id: true, email: true, fullName: true, role: true, hospital: true, isActive: true, createdAt: true },
+      select: fullProfileSelect,
     });
 
     res.status(200).json({ user });
@@ -36,14 +48,14 @@ router.post('/register', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /users/me — returns the authenticated user's profile
+// GET /users/me — returns the authenticated user's full profile
 router.get('/me', authMiddleware, async (req, res) => {
   try {
     const { userId } = (req as any).user;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, fullName: true, role: true, hospital: true, isActive: true, createdAt: true },
+      select: fullProfileSelect,
     });
 
     if (!user) return res.status(404).json({ message: 'User not found' });
@@ -59,18 +71,51 @@ router.get('/me', authMiddleware, async (req, res) => {
 router.put('/me', authMiddleware, async (req, res) => {
   try {
     const { userId } = (req as any).user;
-    const { fullName, hospital } = req.body as { fullName?: string; hospital?: string };
+    const { fullName, hospital, phone, licenseNumber, city, state, colposcopeSerialNo } = req.body as {
+      fullName?: string; hospital?: string; phone?: string;
+      licenseNumber?: string; city?: string; state?: string; colposcopeSerialNo?: string;
+    };
 
     const user = await prisma.user.update({
       where: { id: userId },
-      data: { fullName: fullName ?? null, hospital: hospital ?? null },
-      select: { id: true, email: true, fullName: true, role: true, hospital: true, isActive: true, updatedAt: true },
+      data: {
+        ...(fullName !== undefined && { fullName }),
+        ...(hospital !== undefined && { hospital }),
+        ...(phone !== undefined && { phone }),
+        ...(licenseNumber !== undefined && { licenseNumber }),
+        ...(city !== undefined && { city }),
+        ...(state !== undefined && { state }),
+        ...(colposcopeSerialNo !== undefined && { colposcopeSerialNo }),
+      },
+      select: fullProfileSelect,
     });
 
     res.json({ user });
   } catch (error) {
     console.error('[USER]', error instanceof Error ? error.message : error);
     res.status(500).json({ message: 'Failed to update user' });
+  }
+});
+
+// GET /users/config — returns doctor_config row (cloudSyncEnabled, creditBalance, role)
+router.get('/config', authMiddleware, async (req, res) => {
+  try {
+    const { firebaseUid } = (req as any).user;
+
+    const config = await (prisma as any).doctor_config.findUnique({
+      where: { uid: firebaseUid },
+    });
+
+    res.json({
+      config: {
+        cloudSyncEnabled: config?.cloudSyncEnabled ?? false,
+        role:             config?.role             ?? 'solo',
+        creditBalance:    config?.creditBalance    ?? 0,
+      },
+    });
+  } catch (error) {
+    console.error('[USER]', error instanceof Error ? error.message : error);
+    res.status(500).json({ message: 'Failed to fetch config' });
   }
 });
 
