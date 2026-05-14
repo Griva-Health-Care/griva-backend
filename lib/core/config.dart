@@ -7,7 +7,7 @@ class Config {
   static String get backendUrl {
     const env = String.fromEnvironment('BACKEND_URL');
     if (env.isNotEmpty) return env;
-    return 'http://3.6.1.238:5000';
+    return 'https://api.grivahealth.com';
   }
 
   // ── Raspberry Pi hardware controller ─────────────────────────────────────────
